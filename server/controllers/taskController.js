@@ -88,6 +88,56 @@ exports.moveTaskToList = async (req, res) => {
     }
 };
 
+exports.updateTaskStatus = async (req, res) => {
+    const { taskId } = req.params;
+    const { status } = req.body;
+    const userId = req.user._id;
+
+    const ALLOWED_STATUSES = ['todo', 'in-progress', 'done'];
+    if (!ALLOWED_STATUSES.includes(status)) {
+        return res.status(400).json({ message: `status must be one of: ${ALLOWED_STATUSES.join(', ')}` });
+    }
+
+    try {
+        const task = await Task.findById(taskId);
+        if (!task) {
+            return res.status(404).json({ message: 'Task not found' });
+        }
+
+        const board = await Board.findById(task.board);
+        if (!board) {
+            return res.status(404).json({ message: 'Board not found' });
+        }
+
+        const isMember = board.members.some(member => member.user.toString() === userId.toString()) || board.owner.toString() === userId.toString();
+        if (!isMember) {
+            return res.status(403).json({ message: 'You are not a member of this board' });
+        }
+
+        const previousStatus = task.status;
+        task.status = status;
+        await task.save();
+
+        const populatedTask = await task.populate('assignedTo', 'name');
+
+        if (previousStatus !== status) {
+            await logActivity({
+                boardId: board._id,
+                userId,
+                action: status === 'done'
+                    ? `marked a task complete: ${task.title}`
+                    : `reopened a task: ${task.title}`,
+                taskId: task._id
+            });
+        }
+
+        res.status(200).json(populatedTask);
+    } catch (err) {
+        console.error('Error updating task status:', err);
+        res.status(500).json({ message: err.message });
+    }
+};
+
 exports.deleteTask = async (req, res) => {
     const {taskId} = req.params;
     const userId = req.user._id;

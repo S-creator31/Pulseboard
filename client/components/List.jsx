@@ -2,7 +2,7 @@ import { useDrop } from "react-dnd";
 import { Task } from "./Task";
 import { colorForString } from "@/lib/colors";
 
-export const List = ({ list, onDropTask, onDeleteTask, onDeleteList }) => {
+export const List = ({ list, onDropTask, onDeleteTask, onDeleteList, onToggleStatus }) => {
     const [{ isOver }, drop] = useDrop(() => ({
         accept: 'task',
         drop: (item) => {
@@ -50,7 +50,7 @@ export const List = ({ list, onDropTask, onDeleteTask, onDeleteList }) => {
                 </div>
 
                 {tasks.map((task) => (
-                    <Task key={task._id} task={task} onDeleteTask={onDeleteTask} />
+                    <Task key={task._id} task={task} onDeleteTask={onDeleteTask} onToggleStatus={onToggleStatus} />
                 ))}
 
                 {tasks.length === 0 && (

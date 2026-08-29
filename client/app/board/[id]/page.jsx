@@ -205,6 +205,38 @@ export default function BoardDetailsPage() {
         }
     };
 
+    const handleToggleStatus = async (taskId, newStatus) => {
+        // Optimistic update so the checkbox feels instant, then reconcile
+        // with whatever the server actually saved.
+        setLists((prev) =>
+            prev.map((list) => ({
+                ...list,
+                tasks: (list.tasks || []).map((task) =>
+                    task._id === taskId ? { ...task, status: newStatus } : task
+                ),
+            }))
+        );
+
+        try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tasks/${taskId}/status`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({ status: newStatus })
+            });
+
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.message || 'Failed to update task status');
+            }
+        } catch (err) {
+            alert('Error updating task: ' + err.message);
+            fetchBoardAndLists();
+        }
+    };
+
     const handleLogout = () => {
         localStorage.removeItem('token')
         router.push('/login');
@@ -328,7 +360,7 @@ export default function BoardDetailsPage() {
                     <div className="flex gap-4 overflow-x-auto pb-4 items-start">
                         {lists.map((list) => (
                             <div key={list._id} className="w-[280px] shrink-0">
-                                <List list={list} onDropTask={handleDropTask} onDeleteTask={handleDeleteTask} onDeleteList={handleDeleteList} />
+                                <List list={list} onDropTask={handleDropTask} onDeleteTask={handleDeleteTask} onDeleteList={handleDeleteList} onToggleStatus={handleToggleStatus} />
 
                                 <div className="mt-2 space-y-2">
                                     <input
