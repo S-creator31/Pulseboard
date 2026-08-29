@@ -11,8 +11,22 @@ connectDB();
 const app = express();
 
 
+// Allow local dev (any port on localhost/127.0.0.1) plus whatever the
+// deployed frontend origin is set to via env. The old hardcoded single
+// origin blocked local integration testing entirely.
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3100',
+  process.env.CLIENT_ORIGIN,
+].filter(Boolean);
+
 app.use(cors({
-  origin: ['https://trello-lite-project-management-app.vercel.app'],
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin) || /^http:\/\/localhost:\d+$/.test(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
 

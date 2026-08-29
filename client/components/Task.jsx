@@ -1,41 +1,47 @@
 'use client'
 import { useDrag } from "react-dnd";
+import PulseAvatar from "./PulseAvatar";
 
-export const Task = ({task, onDeleteTask}) => {
-    const [{ isDragging }, drag] = useDrag(()=> ({
+export const Task = ({ task, onDeleteTask }) => {
+    const [{ isDragging }, drag] = useDrag(() => ({
         type: 'task',
-        item: {id: task._id},
+        item: { id: task._id },
         collect: (monitor) => ({
             isDragging: !!monitor.isDragging()
         })
     }));
 
-    return(
-        <div ref={drag} style={{opacity: isDragging ? 0.5 : 1, background: '#2414c4 ',padding: '0.5rem',margin: '0.5rem 0',borderRadius: '4px', color: 'white', position: 'relative'}}>
-            <p >{task.title}</p>
+    return (
+        <div
+            ref={drag}
+            className="group relative rounded-xl border px-3.5 py-3 mb-2.5 cursor-grab active:cursor-grabbing transition-shadow hover:shadow-md"
+            style={{
+                opacity: isDragging ? 0.4 : 1,
+                background: "var(--color-surface)",
+                borderColor: "var(--color-line)",
+            }}
+        >
+            <p className="text-sm font-medium pr-5" style={{ color: "var(--color-ink)" }}>
+                {task.title}
+            </p>
+
             {task.assignedTo && (
-                <p style={{fontSize: '12px', color: '#fff'}}>
-                    Assigned to: {task.assignedTo?.name || 'Unassigned'}
-                </p>
+                <div className="flex items-center gap-1.5 mt-2.5">
+                    <PulseAvatar name={task.assignedTo?.name} size={20} />
+                    <span className="text-xs" style={{ color: "var(--color-ink-muted)" }}>
+                        {task.assignedTo?.name || "Unassigned"}
+                    </span>
+                </div>
             )}
 
             <button
                 onClick={() => onDeleteTask(task._id)}
-                style={{
-                    position: 'absolute',
-                    top: '5px',
-                    right: '5px',
-                    background: 'red',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '3px',
-                    padding: '2px 6px',
-                    fontSize: '12px',
-                    cursor: 'pointer'
-                }}
+                aria-label="Delete task"
+                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold cursor-pointer"
+                style={{ color: "var(--color-danger)", background: "var(--color-danger-soft)" }}
             >
-                X
+                ×
             </button>
         </div>
-    )
+    );
 };

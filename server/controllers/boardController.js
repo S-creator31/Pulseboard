@@ -1,12 +1,16 @@
 const Board = require('../models/Board');
 const User = require('../models/User');
 
+const BOARD_COLORS = ['violet', 'coral', 'teal', 'amber', 'pink'];
+
 exports.createBoard = async (req, res) => {
-    const { title } = req.body;
+    const { title, color } = req.body;
+    const safeColor = BOARD_COLORS.includes(color) ? color : 'violet';
 
     try {
         const board = await Board.create({
             title,
+            color: safeColor,
             owner: req.user.id,
             members: [
                 {

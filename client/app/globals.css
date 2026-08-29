@@ -1,26 +1,136 @@
 @import "tailwindcss";
 
+/* ============================================================
+   Pulseboard design tokens
+   Bold & vibrant direction: electric violet + hot coral accent,
+   deep violet-tinted neutrals (not pure grey), pill-shaped controls,
+   soft color-tinted glow shadows instead of flat black shadows.
+   ============================================================ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand */
+  --color-brand: #6d28f5;        /* Pulse Violet — primary actions, links, focus */
+  --color-brand-strong: #5416e0;
+  --color-brand-soft: #efe7ff;   /* violet-tinted surface for hover/active states */
+  --color-accent: #ff5a4e;       /* Pulse Coral — secondary CTA, highlights, badges */
+  --color-accent-soft: #ffe6e2;
+
+  /* Semantic */
+  --color-success: #12b76a;
+  --color-success-soft: #e3faf0;
+  --color-warning: #f79009;
+  --color-warning-soft: #fef3e0;
+  --color-danger: #f04438;
+  --color-danger-soft: #fdeceb;
+
+  /* Neutrals — violet-biased, not pure grey */
+  --color-ink: #17132b;
+  --color-ink-muted: #635e7a;
+  --color-paper: #fdfbff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f4f1fb;
+  --color-line: #e6e1f5;
+
+  /* Board list accent palette — for list headers / labels */
+  --list-violet: #6d28f5;
+  --list-coral: #ff5a4e;
+  --list-teal: #0e9384;
+  --list-amber: #f79009;
+  --list-pink: #ee46bc;
+
+  --shadow-glow: 0 8px 24px -8px rgb(109 40 245 / 0.35);
+  --shadow-soft: 0 1px 2px rgb(23 19 43 / 0.04), 0 6px 20px rgb(23 19 43 / 0.06);
+
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+
+  --background: var(--color-paper);
+  --foreground: var(--color-ink);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-brand: var(--color-brand);
+  --color-brand-strong: var(--color-brand-strong);
+  --color-brand-soft: var(--color-brand-soft);
+  --color-accent: var(--color-accent);
+  --color-accent-soft: var(--color-accent-soft);
+  --color-success: var(--color-success);
+  --color-warning: var(--color-warning);
+  --color-danger: var(--color-danger);
+  --color-ink: var(--color-ink);
+  --color-ink-muted: var(--color-ink-muted);
+  --color-surface: var(--color-surface);
+  --color-surface-2: var(--color-surface-2);
+  --color-line: var(--color-line);
+  --font-sans: var(--font-manrope);
+  --font-display: var(--font-sora);
+  --font-mono: var(--font-jetbrains);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --color-brand: #9b7bff;
+    --color-brand-strong: #b498ff;
+    --color-brand-soft: #241a45;
+    --color-accent: #ff8177;
+    --color-accent-soft: #3a1f22;
+    --color-success: #3fd489;
+    --color-success-soft: #113228;
+    --color-warning: #ffb454;
+    --color-warning-soft: #3a2a10;
+    --color-danger: #ff7a70;
+    --color-danger-soft: #3a1a18;
+    --color-ink: #f1eefc;
+    --color-ink-muted: #a79fc7;
+    --color-paper: #100b21;
+    --color-surface: #191231;
+    --color-surface-2: #211a3d;
+    --color-line: #322a55;
+    --shadow-glow: 0 8px 28px -6px rgb(155 123 255 / 0.35);
+    --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.35), 0 10px 28px rgb(0 0 0 / 0.35);
+    --background: var(--color-paper);
+    --foreground: var(--color-ink);
   }
+}
+
+* {
+  border-color: var(--color-line);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-manrope), Arial, Helvetica, sans-serif;
+}
+
+h1, h2, h3, h4, .font-display {
+  font-family: var(--font-sora), var(--font-manrope), sans-serif;
+}
+
+.font-data {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+}
+
+::selection {
+  background: var(--color-brand);
+  color: white;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* Pulseboard brand gradient — used sparingly, for hero/logo moments only */
+.pulse-gradient {
+  background: linear-gradient(135deg, var(--color-brand) 0%, var(--color-accent) 100%);
+}
+.pulse-gradient-text {
+  background: linear-gradient(135deg, var(--color-brand) 0%, var(--color-accent) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }

@@ -1,57 +1,84 @@
 import { useState } from "react";
 import axios from 'axios';
+import PulseAvatar from "./PulseAvatar";
 
-
-const AddMemberForm = ({boardId, token, members, currentUserIsAdmin}) => {
+const AddMemberForm = ({ boardId, token, members, currentUserIsAdmin }) => {
     const [email, setEmail] = useState('');
     const [role, setRole] = useState('member');
     const [message, setMessage] = useState('');
+    const [open, setOpen] = useState(false);
 
     const handleAddMember = async () => {
-        try{
-            const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/boards/${boardId}/members`,
-                {email, role},
-                {
-                    headers: {
-                        Authorization: `Bearer ${token}`
-                    }
-                }
+        try {
+            await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/boards/${boardId}/members`,
+                { email, role },
+                { headers: { Authorization: `Bearer ${token}` } }
             );
             setMessage('Member added successfully');
             setEmail('');
-
-        }catch(err){
+        } catch (err) {
             setMessage(err.response?.data?.message || 'Error adding member');
         }
     };
 
-    return(
-        <div className="bg-white p-4 rounded shadow-md mb-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Add Member</h3>
-            <div className="flex flex-wrap items-center gap-3 mb-4">
-
-            <input type="email" placeholder="User email" value={email} onChange={(e) => setEmail(e.target.value)} 
-            className="border border-gray-300 rounded px-3 py-2 w-64 text-gray-800" />
-
-            <select value={role} onChange={(e) => setRole(e.target.value)} 
-            className="border border-gray-300 rounded px-3 py-2 text-gray-800">
-                <option value="member">Member</option>
-                <option value="admin">Admin</option>
-            </select>
-            <button onClick={handleAddMember} 
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Add</button>
-            </div>
-            {message && <p className="text-gray-950">{message}</p>}
-
-            <div className='mb-6 flex flex-wrap gap-4'>
-                {members.map(member => (
-                    <div key={member.user._id} className='bg-white rounded p-2 shadow w-fit text-gray-800'>
-                        <p className='text-sm font-medium text-gray-900'>{member.user.name} - {member.role}</p>
-                        
-                    </div>
-                ))}
+    return (
+        <div className="mb-6">
+            <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex -space-x-2">
+                    {members.map((member) => (
+                        member.user && (
+                            <PulseAvatar key={member.user._id} name={member.user.name} size={30} ring />
+                        )
+                    ))}
                 </div>
 
+                {currentUserIsAdmin && (
+                    <button
+                        onClick={() => setOpen((v) => !v)}
+                        className="text-sm font-medium px-3 py-1.5 rounded-lg border transition-colors cursor-pointer"
+                        style={{ borderColor: "var(--color-line)", color: "var(--color-ink-muted)" }}
+                    >
+                        {open ? "Close" : "+ Add member"}
+                    </button>
+                )}
+            </div>
+
+            {open && (
+                <div
+                    className="mt-3 rounded-xl border p-4"
+                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface)" }}
+                >
+                    <div className="flex flex-wrap items-center gap-2.5">
+                        <input
+                            type="email"
+                            placeholder="teammate@email.com"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="border rounded-lg px-3 py-2 text-sm flex-1 min-w-[200px] outline-none"
+                            style={{ borderColor: "var(--color-line)", color: "var(--color-ink)" }}
+                        />
+                        <select
+                            value={role}
+                            onChange={(e) => setRole(e.target.value)}
+                            className="border rounded-lg px-3 py-2 text-sm outline-none"
+                            style={{ borderColor: "var(--color-line)", color: "var(--color-ink)" }}
+                        >
+                            <option value="member">Member</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                        <button
+                            onClick={handleAddMember}
+                            className="text-sm font-semibold text-white px-3.5 py-2 rounded-lg cursor-pointer"
+                            style={{ background: "var(--color-brand)" }}
+                        >
+                            Add
+                        </button>
+                    </div>
+                    {message && (
+                        <p className="text-xs mt-2.5" style={{ color: "var(--color-ink-muted)" }}>{message}</p>
+                    )}
+                </div>
+            )}
         </div>
     );
 };

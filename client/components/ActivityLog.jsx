@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 
-const ActivityLog = ({boardId}) => {
+const ActivityLog = ({ boardId }) => {
     const [logs, setLogs] = useState([]);
 
     useEffect(() => {
         const fetchLogs = async () => {
-            try{
+            try {
                 const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/activity-logs/${boardId}`, {
                     headers: {
                         Authorization: `Bearer ${localStorage.getItem('token')}`
@@ -15,35 +15,43 @@ const ActivityLog = ({boardId}) => {
                 });
                 const data = await res.json();
                 setLogs(data);
-                // console.log(logs);
-
-            }catch(err){
+            } catch (err) {
                 console.error('Error fetching logs:', err);
             }
         };
         fetchLogs();
     }, [boardId]);
 
-    return(
-        <div style={{marginTop: '2rem'}}>
-            <h3 className=" text-2xl font-bold text-gray-900">📘 Activity Logs</h3>
+    return (
+        <div
+            className="rounded-2xl border p-5"
+            style={{ borderColor: "var(--color-line)", background: "var(--color-surface)" }}
+        >
+            <h3 className="font-display text-sm font-semibold mb-3" style={{ color: "var(--color-ink)" }}>
+                Activity
+            </h3>
 
             {logs.length === 0 ? (
-                <p>No activity yet..</p>
-            ): (
-
-            <ul>
-                {logs.map((log) => (
-                    <li key={log._id} style={{marginBottom: '0.5rem'}}>
-                        <strong style={{color: 'black'}}>{log.user?.name || 'Someone'}</strong> {log.action}
-                        <br />
-                        <small>{new Date(log.createdAt).toLocaleString()}</small>
-
-                    </li>
-                ))}
-            </ul>
+                <p className="text-sm" style={{ color: "var(--color-ink-muted)" }}>Nothing logged yet.</p>
+            ) : (
+                <ul className="space-y-3">
+                    {logs.map((log) => (
+                        <li key={log._id} className="flex gap-2.5 text-sm">
+                            <span className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: "var(--color-brand)" }} />
+                            <span>
+                                <span className="font-medium" style={{ color: "var(--color-ink)" }}>
+                                    {log.user?.name || 'Someone'}
+                                </span>{' '}
+                                <span style={{ color: "var(--color-ink-muted)" }}>{log.action}</span>
+                                <br />
+                                <span className="text-xs font-data" style={{ color: "var(--color-ink-muted)" }}>
+                                    {new Date(log.createdAt).toLocaleString()}
+                                </span>
+                            </span>
+                        </li>
+                    ))}
+                </ul>
             )}
-
         </div>
     );
 };

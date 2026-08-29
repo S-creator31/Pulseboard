@@ -1,0 +1,4 @@
+# Normalize line endings to LF in the repo regardless of OS checkout
+# settings. Without this, Windows checkouts (core.autocrlf=true) mark
+# every tracked file as "modified" purely from CRLF conversion.
+* text=auto eol=lf
