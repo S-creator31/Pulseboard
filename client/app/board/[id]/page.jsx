@@ -31,6 +31,7 @@ export default function BoardDetailsPage() {
   const [error, setError] = useState('');
   const [addingList, setAddingList] = useState(false);
   const [activeSprint, setActiveSprint] = useState(null);
+  const [sprints, setSprints] = useState([]);
   const [dependencies, setDependencies] = useState([]);
 
   // UI state & Modals
@@ -105,6 +106,7 @@ export default function BoardDetailsPage() {
       }
       if (sprintRes.ok) {
         const sData = await sprintRes.json();
+        setSprints(sData);
         const active = sData.find(s => s.status === 'active') || sData[0];
         setActiveSprint(active);
       }
@@ -643,6 +645,8 @@ export default function BoardDetailsPage() {
         onClose={() => setSelectedTask(null)}
         onTaskUpdated={fetchBoardAndLists}
         members={board?.members || []}
+        allTasks={lists.flatMap(l => l.tasks || [])}
+        sprints={sprints}
       />
 
       <ActivityLogDrawer

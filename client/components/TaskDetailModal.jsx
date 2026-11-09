@@ -11,9 +11,11 @@ export default function TaskDetailModal({
   isOpen,
   onClose,
   onTaskUpdated,
-  members = []
+  members = [],
+  allTasks = [],
+  sprints = []
 }) {
-  const [activeTab, setActiveTab] = useState('details'); // 'details' | 'time' | 'breakdown' | 'history'
+  const [activeTab, setActiveTab] = useState('details'); // 'details' | 'dependencies' | 'time' | 'breakdown' | 'history'
   const [timeEntries, setTimeEntries] = useState([]);
   const [totalActualHours, setTotalActualHours] = useState(0);
 
@@ -33,7 +35,20 @@ export default function TaskDetailModal({
   const [description, setDescription] = useState(task?.description || '');
   const [priority, setPriority] = useState(task?.priority || 'medium');
   const [estimateHours, setEstimateHours] = useState(task?.estimateHours || 4);
+  const [storyPoints, setStoryPoints] = useState(task?.storyPoints || 3);
+  const [durationDays, setDurationDays] = useState(task?.durationDays || 2);
+  const [startDate, setStartDate] = useState(task?.startDate ? new Date(task.startDate).toISOString().slice(0, 10) : '');
+  const [sprint, setSprint] = useState(task?.sprint?._id || task?.sprint || '');
   const [assignedTo, setAssignedTo] = useState(task?.assignedTo?._id || task?.assignedTo || '');
+
+  // Schedule & Dependencies
+  const [boardSprints, setBoardSprints] = useState(sprints || []);
+  const [boardTasks, setBoardTasks] = useState(allTasks || []);
+  const [dependencies, setDependencies] = useState({ predecessors: [], successors: [] });
+  const [cpmStats, setCpmStats] = useState(null);
+  const [selectedPredecessor, setSelectedPredecessor] = useState('');
+  const [addingDependency, setAddingDependency] = useState(false);
+  const [cycleError, setCycleError] = useState(null);
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
@@ -43,9 +58,141 @@ export default function TaskDetailModal({
     setDescription(task.description || '');
     setPriority(task.priority || 'medium');
     setEstimateHours(task.estimateHours || 4);
+    setStoryPoints(task.storyPoints !== undefined ? task.storyPoints : 3);
+    setDurationDays(task.durationDays || 2);
+    setStartDate(task.startDate ? new Date(task.startDate).toISOString().slice(0, 10) : '');
+    setSprint(task.sprint?._id || task.sprint || '');
     setAssignedTo(task.assignedTo?._id || task.assignedTo || '');
+    setCycleError(null);
     fetchTimeEntries();
-  }, [task]);
+    fetchDependenciesAndSchedule();
+    fetchSprints();
+  }, [task, boardId]);
+
+  const fetchSprints = async () => {
+    if (!boardId) return;
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sprints/board/${boardId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setBoardSprints(data);
+      }
+    } catch (e) {
+      console.error('Error loading sprints in task modal:', e);
+    }
+  };
+
+  const fetchDependenciesAndSchedule = async () => {
+    if (!boardId || !task?._id) return;
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/boards/${boardId}/schedule`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const schedTasks = data.tasks || [];
+        const currentTaskCpm = schedTasks.find(t => t.id === task._id);
+        setCpmStats(currentTaskCpm || null);
+
+        const allTasksList = schedTasks.map(t => ({
+          _id: t.id,
+          title: t.title,
+          durationDays: t.duration || 1
+        }));
+        if (allTasksList.length > 0) {
+          setBoardTasks(allTasksList);
+        }
+
+        const allDeps = data.dependencies || [];
+        const preds = allDeps
+          .filter(d => (d.successor === task._id || d.successor?._id === task._id))
+          .map(d => {
+            const fromId = typeof d.predecessor === 'object' ? d.predecessor._id : d.predecessor;
+            const predTask = allTasksList.find(t => t._id === fromId);
+            return {
+              depId: d.id || d._id,
+              task: predTask || { _id: fromId, title: 'Predecessor task' }
+            };
+          });
+
+        const succs = allDeps
+          .filter(d => (d.predecessor === task._id || d.predecessor?._id === task._id))
+          .map(d => {
+            const toId = typeof d.successor === 'object' ? d.successor._id : d.successor;
+            const succTask = allTasksList.find(t => t._id === toId);
+            return {
+              depId: d.id || d._id,
+              task: succTask || { _id: toId, title: 'Successor task' }
+            };
+          });
+
+        setDependencies({ predecessors: preds, successors: succs });
+      }
+    } catch (err) {
+      console.error('Error fetching schedule & dependencies:', err);
+    }
+  };
+
+  const handleAddDependency = async () => {
+    if (!selectedPredecessor || !boardId) return;
+    setAddingDependency(true);
+    setCycleError(null);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/boards/${boardId}/dependencies`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          predecessor: selectedPredecessor,
+          successor: task._id
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 409) {
+          const cycleChain = Array.isArray(data.cycle) ? data.cycle.join(' → ') : '';
+          const msg = data.message + (cycleChain ? ` (${cycleChain})` : '');
+          setCycleError(msg);
+          toast.error(`Cycle detected: ${data.message}`);
+        } else {
+          toast.error(data.message || 'Error adding dependency');
+        }
+        return;
+      }
+      toast.success('Predecessor dependency linked');
+      setSelectedPredecessor('');
+      fetchDependenciesAndSchedule();
+      if (onTaskUpdated) onTaskUpdated();
+    } catch (e) {
+      toast.error('Network error linking dependency');
+    } finally {
+      setAddingDependency(false);
+    }
+  };
+
+  const handleDeleteDependency = async (depId) => {
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/dependencies/${depId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        toast.success('Dependency unlinked');
+        setCycleError(null);
+        fetchDependenciesAndSchedule();
+        if (onTaskUpdated) onTaskUpdated();
+      } else {
+        const err = await res.json();
+        toast.error(err.message || 'Failed to unlink dependency');
+      }
+    } catch (e) {
+      toast.error('Error removing dependency');
+    }
+  };
 
   const fetchTimeEntries = async () => {
     if (!task?._id) return;
@@ -191,6 +338,10 @@ export default function TaskDetailModal({
           description,
           priority,
           estimateHours: Number(estimateHours),
+          storyPoints: Number(storyPoints),
+          durationDays: Number(durationDays),
+          startDate: startDate ? new Date(startDate) : null,
+          sprint: sprint || null,
           assignedTo: assignedTo || null
         })
       });
@@ -199,6 +350,8 @@ export default function TaskDetailModal({
         toast.success('Task details saved');
         if (onTaskUpdated) onTaskUpdated();
         onClose();
+      } else {
+        toast.error('Error saving task');
       }
     } catch (e) {
       toast.error('Error updating task');
@@ -306,32 +459,39 @@ export default function TaskDetailModal({
         </div>
 
         {/* Tab Navigation */}
-        <div className="px-5 pt-2 border-b flex items-center gap-4 text-xs font-semibold" style={{ borderColor: "var(--color-line)" }}>
+        <div className="px-5 pt-2 border-b flex items-center gap-4 text-xs font-semibold overflow-x-auto" style={{ borderColor: "var(--color-line)" }}>
           <button
             type="button"
             onClick={() => setActiveTab('details')}
-            className={`pb-2.5 border-b-2 cursor-pointer transition-colors ${activeTab === 'details' ? 'border-[#6d28f5] text-[#6d28f5]' : 'border-transparent text-gray-500'}`}
+            className={`pb-2.5 border-b-2 cursor-pointer transition-colors shrink-0 ${activeTab === 'details' ? 'border-[#6d28f5] text-[#6d28f5]' : 'border-transparent text-gray-500'}`}
           >
-            Details & Assignee
+            Details & Effort
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('dependencies')}
+            className={`pb-2.5 border-b-2 cursor-pointer transition-colors shrink-0 ${activeTab === 'dependencies' ? 'border-[#6d28f5] text-[#6d28f5]' : 'border-transparent text-gray-500'}`}
+          >
+            Dependencies & CPM {dependencies.predecessors.length > 0 && `(${dependencies.predecessors.length})`}
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('time')}
-            className={`pb-2.5 border-b-2 cursor-pointer transition-colors ${activeTab === 'time' ? 'border-[#6d28f5] text-[#6d28f5]' : 'border-transparent text-gray-500'}`}
+            className={`pb-2.5 border-b-2 cursor-pointer transition-colors shrink-0 ${activeTab === 'time' ? 'border-[#6d28f5] text-[#6d28f5]' : 'border-transparent text-gray-500'}`}
           >
             Time Tracking ({timeEntries.length})
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('breakdown')}
-            className={`pb-2.5 border-b-2 cursor-pointer transition-colors ${activeTab === 'breakdown' ? 'border-[#6d28f5] text-[#6d28f5]' : 'border-transparent text-gray-500'}`}
+            className={`pb-2.5 border-b-2 cursor-pointer transition-colors shrink-0 ${activeTab === 'breakdown' ? 'border-[#6d28f5] text-[#6d28f5]' : 'border-transparent text-gray-500'}`}
           >
             AI Breakdown {breakdownResult && `(${breakdownResult.subtasks.length})`}
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('history')}
-            className={`pb-2.5 border-b-2 cursor-pointer transition-colors ${activeTab === 'history' ? 'border-[#6d28f5] text-[#6d28f5]' : 'border-transparent text-gray-500'}`}
+            className={`pb-2.5 border-b-2 cursor-pointer transition-colors shrink-0 ${activeTab === 'history' ? 'border-[#6d28f5] text-[#6d28f5]' : 'border-transparent text-gray-500'}`}
           >
             Audit History
           </button>
@@ -416,6 +576,64 @@ export default function TaskDetailModal({
                 </div>
               </div>
 
+              {/* Schedule & Effort Parameters */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                <div>
+                  <label className="block font-semibold mb-1" style={{ color: "var(--color-ink)" }}>Story Points</label>
+                  <select
+                    value={storyPoints}
+                    onChange={(e) => setStoryPoints(Number(e.target.value))}
+                    className="w-full px-2.5 py-2 rounded-xl border outline-none font-data"
+                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface)" }}
+                  >
+                    {[0, 1, 2, 3, 5, 8, 13, 21].map(pt => (
+                      <option key={pt} value={pt}>{pt} pts</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold mb-1" style={{ color: "var(--color-ink)" }}>Duration (Days)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={durationDays}
+                    onChange={(e) => setDurationDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    className="w-full px-2.5 py-2 rounded-xl border outline-none font-data"
+                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface)" }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold mb-1" style={{ color: "var(--color-ink)" }}>Start Date</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full px-2.5 py-2 rounded-xl border outline-none font-data text-xs"
+                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface)" }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold mb-1" style={{ color: "var(--color-ink)" }}>Sprint</label>
+                  <select
+                    value={sprint}
+                    onChange={(e) => setSprint(e.target.value)}
+                    className="w-full px-2.5 py-2 rounded-xl border outline-none text-xs"
+                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface)" }}
+                  >
+                    <option value="">No Sprint (Backlog)</option>
+                    {boardSprints.map(s => (
+                      <option key={s._id} value={s._id}>
+                        {s.name} {s.status === 'active' ? '(Active)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               <div className="flex justify-end pt-3">
                 <button
                   type="button"
@@ -425,6 +643,198 @@ export default function TaskDetailModal({
                 >
                   Save Task Details
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: DEPENDENCIES & CPM */}
+          {activeTab === 'dependencies' && (
+            <div className="space-y-5 text-xs">
+              {/* CPM Metrics Banner */}
+              {cpmStats && (
+                <div
+                  className="p-3.5 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+                  style={{
+                    background: cpmStats.isCritical ? '#fff1ef' : 'var(--color-surface-2)',
+                    borderColor: cpmStats.isCritical ? '#ffb9b0' : 'var(--color-line)'
+                  }}
+                >
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                          cpmStats.isCritical
+                            ? 'bg-[#d93c30] text-white'
+                            : 'bg-[#5416e0] text-white'
+                        }`}
+                      >
+                        {cpmStats.isCritical ? 'Critical Path' : `${cpmStats.float}d Float`}
+                      </span>
+                      <span className="font-semibold" style={{ color: "var(--color-ink)" }}>
+                        CPM Schedule Computation
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-500">
+                      {cpmStats.isCritical
+                        ? 'Zero slack (Float = 0): Any slippage on this task pushes back total project delivery.'
+                        : `Has ${cpmStats.float} days of float before delaying downstream dependent tasks.`}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-[11px] font-data text-center shrink-0">
+                    <div className="px-2 py-1 rounded bg-white/70 border border-black/5">
+                      <div className="text-[9px] text-gray-500 uppercase">ES</div>
+                      <div className="font-bold">Day {cpmStats.es}</div>
+                    </div>
+                    <div className="px-2 py-1 rounded bg-white/70 border border-black/5">
+                      <div className="text-[9px] text-gray-500 uppercase">EF</div>
+                      <div className="font-bold">Day {cpmStats.ef}</div>
+                    </div>
+                    <div className="px-2 py-1 rounded bg-white/70 border border-black/5">
+                      <div className="text-[9px] text-gray-500 uppercase">LS</div>
+                      <div className="font-bold">Day {cpmStats.ls}</div>
+                    </div>
+                    <div className="px-2 py-1 rounded bg-white/70 border border-black/5">
+                      <div className="text-[9px] text-gray-500 uppercase">LF</div>
+                      <div className="font-bold">Day {cpmStats.lf}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Cycle Error Banner */}
+              {cycleError && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-xs">
+                    <span>⚠️</span> Dependency Cycle Prevented (DAG Enforced)
+                  </div>
+                  <p className="text-[11px] font-data">{cycleError}</p>
+                  <p className="text-[10px] text-red-500">
+                    PulseBoard uses Kahn&apos;s algorithm topological sorting. Cyclic dependencies would lock the schedule calculation.
+                  </p>
+                </div>
+              )}
+
+              {/* Predecessors Section */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold" style={{ color: "var(--color-ink)" }}>
+                    Predecessors (Must finish before this task can start)
+                  </label>
+                  <span className="text-[11px] text-gray-500">
+                    {dependencies.predecessors.length} blocker{dependencies.predecessors.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                {dependencies.predecessors.length === 0 ? (
+                  <div className="p-3 rounded-xl border border-dashed text-center text-gray-400 text-xs">
+                    No predecessor dependencies. This task can start on Day 0.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {dependencies.predecessors.map((p) => (
+                      <div
+                        key={p.depId}
+                        className="flex items-center justify-between p-2.5 rounded-xl border"
+                        style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          <span className="font-medium text-xs" style={{ color: "var(--color-ink)" }}>
+                            {p.task.title}
+                          </span>
+                          <span className="text-[10px] text-gray-400 font-data">
+                            ({p.task.durationDays || 1}d duration)
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteDependency(p.depId)}
+                          title="Unlink predecessor"
+                          className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add Predecessor Control */}
+                <div className="pt-2 flex items-center gap-2">
+                  <select
+                    value={selectedPredecessor}
+                    onChange={(e) => {
+                      setSelectedPredecessor(e.target.value);
+                      setCycleError(null);
+                    }}
+                    className="flex-1 px-3 py-2 rounded-xl border outline-none text-xs"
+                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface)" }}
+                  >
+                    <option value="">Select a task that must finish first...</option>
+                    {boardTasks
+                      .filter(t => t._id !== task._id && !dependencies.predecessors.some(p => p.task._id === t._id))
+                      .map(t => (
+                        <option key={t._id} value={t._id}>
+                          {t.title} ({t.durationDays || 1}d)
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={!selectedPredecessor || addingDependency}
+                    onClick={handleAddDependency}
+                    className="px-3.5 py-2 rounded-xl text-white font-semibold text-xs disabled:opacity-50 cursor-pointer shrink-0 transition-opacity"
+                    style={{ background: "var(--color-brand)" }}
+                  >
+                    {addingDependency ? 'Checking...' : '+ Add Predecessor'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Successors Section */}
+              <div className="space-y-2 pt-2 border-t" style={{ borderColor: "var(--color-line)" }}>
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold" style={{ color: "var(--color-ink)" }}>
+                    Successors (Waiting for this task to finish)
+                  </label>
+                  <span className="text-[11px] text-gray-500">
+                    {dependencies.successors.length} downstream
+                  </span>
+                </div>
+
+                {dependencies.successors.length === 0 ? (
+                  <div className="p-3 rounded-xl border border-dashed text-center text-gray-400 text-xs">
+                    No downstream tasks depend on this card.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {dependencies.successors.map((s) => (
+                      <div
+                        key={s.depId}
+                        className="flex items-center justify-between p-2.5 rounded-xl border"
+                        style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                          <span className="font-medium text-xs" style={{ color: "var(--color-ink)" }}>
+                            {s.task.title}
+                          </span>
+                          <span className="text-[10px] text-gray-400 font-data">
+                            ({s.task.durationDays || 1}d duration)
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteDependency(s.depId)}
+                          title="Unlink dependency"
+                          className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

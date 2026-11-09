@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import BoardNav from '@/components/BoardNav';
+import { toast } from 'sonner';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -44,6 +45,63 @@ export default function AnalyticsPage() {
   const [loadingCharts, setLoadingCharts] = useState(true);
   const [digestLoading, setDigestLoading] = useState(false);
   const [hoveredMetric, setHoveredMetric] = useState(null);
+
+  // New Sprint Modal State
+  const [showCreateSprint, setShowCreateSprint] = useState(false);
+  const [newSprintName, setNewSprintName] = useState('');
+  const [newSprintGoal, setNewSprintGoal] = useState('');
+  const [newSprintStart, setNewSprintStart] = useState('');
+  const [newSprintEnd, setNewSprintEnd] = useState('');
+  const [newSprintPoints, setNewSprintPoints] = useState(30);
+  const [creatingSprint, setCreatingSprint] = useState(false);
+
+  const handleCreateSprint = async (e) => {
+    e.preventDefault();
+    if (!newSprintName || !newSprintStart || !newSprintEnd) {
+      toast.error('Sprint name, start date and end date are required');
+      return;
+    }
+    setCreatingSprint(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sprints`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          boardId,
+          name: newSprintName,
+          goal: newSprintGoal,
+          startsOn: newSprintStart,
+          endsOn: newSprintEnd,
+          committedPoints: Number(newSprintPoints) || 0
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.message || 'Error creating sprint');
+        return;
+      }
+      toast.success(`Sprint "${newSprintName}" created!`);
+      setShowCreateSprint(false);
+      setNewSprintName('');
+      setNewSprintGoal('');
+      // Reload sprints
+      const sprRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sprints/board/${boardId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (sprRes.ok) {
+        const sList = await sprRes.json();
+        setSprints(sList);
+        setSelectedSprintId(data._id);
+      }
+    } catch (err) {
+      toast.error('Failed to create sprint');
+    } finally {
+      setCreatingSprint(false);
+    }
+  };
 
   // Fetch initial board info and sprints list
   useEffect(() => {
@@ -221,6 +279,26 @@ export default function AnalyticsPage() {
                 </button>
               );
             })}
+
+            <button
+              type="button"
+              onClick={() => {
+                const today = new Date().toISOString().slice(0, 10);
+                const twoWeeks = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+                setNewSprintStart(today);
+                setNewSprintEnd(twoWeeks);
+                setNewSprintName(`Sprint ${sprints.length + 1}`);
+                setShowCreateSprint(true);
+              }}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-full border border-dashed transition-all cursor-pointer"
+              style={{
+                borderColor: "var(--color-brand)",
+                color: "var(--color-brand)",
+                background: "var(--color-surface)"
+              }}
+            >
+              + New Sprint
+            </button>
           </div>
 
           <div className="text-xs font-medium" style={{ color: "var(--color-ink-muted)" }}>
@@ -712,6 +790,118 @@ export default function AnalyticsPage() {
             </table>
           </div>
         </section>
+
+        {/* Create Sprint Modal */}
+        {showCreateSprint && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-[2px]"
+            onClick={() => setShowCreateSprint(false)}
+          >
+            <div
+              className="rounded-2xl border p-6 max-w-md w-full shadow-2xl space-y-4"
+              style={{ background: "var(--color-surface)", borderColor: "var(--color-line)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: "var(--color-line)" }}>
+                <h3 className="font-display text-base font-bold" style={{ color: "var(--color-ink)" }}>
+                  Create New Sprint
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateSprint(false)}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold border cursor-pointer"
+                  style={{ borderColor: "var(--color-line)", color: "var(--color-ink-muted)" }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateSprint} className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-semibold mb-1" style={{ color: "var(--color-ink)" }}>Sprint Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={newSprintName}
+                    onChange={(e) => setNewSprintName(e.target.value)}
+                    placeholder="e.g. Sprint 5 - Hardening & Release"
+                    className="w-full px-3 py-2 rounded-xl border outline-none"
+                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface)", color: "var(--color-ink)" }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold mb-1" style={{ color: "var(--color-ink)" }}>Sprint Goal</label>
+                  <input
+                    type="text"
+                    value={newSprintGoal}
+                    onChange={(e) => setNewSprintGoal(e.target.value)}
+                    placeholder="Key objective for this sprint cycle..."
+                    className="w-full px-3 py-2 rounded-xl border outline-none"
+                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface)", color: "var(--color-ink)" }}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold mb-1" style={{ color: "var(--color-ink)" }}>Starts On</label>
+                    <input
+                      type="date"
+                      required
+                      value={newSprintStart}
+                      onChange={(e) => setNewSprintStart(e.target.value)}
+                      className="w-full px-2.5 py-2 rounded-xl border outline-none font-data"
+                      style={{ borderColor: "var(--color-line)", background: "var(--color-surface)" }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1" style={{ color: "var(--color-ink)" }}>Ends On</label>
+                    <input
+                      type="date"
+                      required
+                      value={newSprintEnd}
+                      onChange={(e) => setNewSprintEnd(e.target.value)}
+                      className="w-full px-2.5 py-2 rounded-xl border outline-none font-data"
+                      style={{ borderColor: "var(--color-line)", background: "var(--color-surface)" }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-semibold mb-1" style={{ color: "var(--color-ink)" }}>Committed Story Points</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="200"
+                    value={newSprintPoints}
+                    onChange={(e) => setNewSprintPoints(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border outline-none font-data"
+                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface)" }}
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateSprint(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer border"
+                    style={{ borderColor: "var(--color-line)", color: "var(--color-ink-muted)" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={creatingSprint}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-white cursor-pointer"
+                    style={{ background: "var(--color-brand)" }}
+                  >
+                    {creatingSprint ? 'Creating...' : 'Create Sprint'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
       </main>
     </div>

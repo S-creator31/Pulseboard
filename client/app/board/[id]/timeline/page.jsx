@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import BoardNav from '@/components/BoardNav';
 import PulseAvatar from '@/components/PulseAvatar';
+import TaskDetailModal from '@/components/TaskDetailModal';
 
 export default function TimelinePage() {
   const { id: boardId } = useParams();
@@ -19,6 +20,7 @@ export default function TimelinePage() {
   const [zoomLevel, setZoomLevel] = useState('day'); // 'day' | 'week' | 'month'
   const [loading, setLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState(null);
+  const [editingModalTask, setEditingModalTask] = useState(null);
 
   useEffect(() => {
     if (!token || !boardId) return;
@@ -590,7 +592,26 @@ export default function TimelinePage() {
                 <div><strong>Total Float:</strong> <span className="font-data">{selectedTask.float} days</span></div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-between items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const foundNode = graphData.nodes.find(n => n.id === selectedTask.id);
+                    setEditingModalTask({
+                      _id: selectedTask.id,
+                      title: selectedTask.title,
+                      durationDays: selectedTask.duration,
+                      estimateHours: foundNode?.estimateHours || 4,
+                      priority: foundNode?.priority || 'medium',
+                      assignedTo: foundNode?.assignedTo
+                    });
+                    setSelectedTask(null);
+                  }}
+                  className="px-3.5 py-2 text-xs font-semibold rounded-xl border transition-colors cursor-pointer"
+                  style={{ borderColor: "var(--color-brand)", color: "var(--color-brand)", background: "var(--color-surface-2)" }}
+                >
+                  Manage Dependencies & Edit ↗
+                </button>
                 <button
                   type="button"
                   onClick={() => setSelectedTask(null)}
@@ -602,6 +623,22 @@ export default function TimelinePage() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Full Task & Dependency Management Modal */}
+        {editingModalTask && (
+          <TaskDetailModal
+            task={editingModalTask}
+            boardId={boardId}
+            isOpen={!!editingModalTask}
+            onClose={() => setEditingModalTask(null)}
+            onTaskUpdated={() => {
+              // Re-fetch timeline graph & CPM data
+              window.location.reload();
+            }}
+            members={board?.members || []}
+            allTasks={graphData.nodes.map(n => ({ _id: n.id, title: n.title, durationDays: n.durationDays || 1 }))}
+          />
         )}
 
       </main>
