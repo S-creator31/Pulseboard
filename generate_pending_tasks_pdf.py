@@ -57,22 +57,19 @@ def build_pdf(filename="PulseBoard_Pending_and_Improvements.pdf"):
         pagesize=letter,
         leftMargin=45,
         rightMargin=45,
-        topMargin=42,
-        bottomMargin=42
+        topMargin=40,
+        bottomMargin=40
     )
 
     styles = getSampleStyleSheet()
 
     # Brand Colors
     c_brand = colors.HexColor("#5416E0")       # Pulse Violet
-    c_brand_dark = colors.HexColor("#3B0D99")  # Dark Violet
-    c_coral = colors.HexColor("#E11D48")       # Red/Coral Accent
     c_ink = colors.HexColor("#18181B")         # Charcoal Dark
     c_muted = colors.HexColor("#52525B")       # Secondary text
     c_bg_light = colors.HexColor("#F9FAFB")    # Table alt row
     c_border = colors.HexColor("#E4E4E7")      # Border lines
     c_success = colors.HexColor("#059669")     # Emerald Green
-    c_amber = colors.HexColor("#D97706")       # Amber
 
     # Custom Typography Styles
     title_style = ParagraphStyle(
@@ -130,15 +127,6 @@ def build_pdf(filename="PulseBoard_Pending_and_Improvements.pdf"):
         'TableBody',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=7,
-        leading=9,
-        textColor=c_ink
-    )
-
-    table_body_bold = ParagraphStyle(
-        'TableBodyBold',
-        parent=styles['Normal'],
-        fontName='Helvetica-Bold',
         fontSize=7,
         leading=9,
         textColor=c_ink
@@ -287,11 +275,11 @@ def build_pdf(filename="PulseBoard_Pending_and_Improvements.pdf"):
         ('RIGHTPADDING', (0,0), (-1,-1), 5),
     ]))
     story.append(t_trade)
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 8))
 
     story.append(Paragraph("3. Engineering Backlog & High-Impact Improvements (Phase 2 Roadmap)", h1_style))
     story.append(Paragraph(
-        "The following prioritized roadmap outlines proposed enhancements that build upon PulseBoard's core scheduling and analytics engines:",
+        "The following prioritized roadmap outlines key pending enhancements that build directly upon PulseBoard's core scheduling, flow, and analytics engines:",
         body_style
     ))
 
@@ -301,13 +289,13 @@ def build_pdf(filename="PulseBoard_Pending_and_Improvements.pdf"):
             Paragraph("<b>1. Real-time Multi-User Sync (Socket.io)</b><br/>Live drag-and-drop card sync across concurrent users with active presence indicators.", table_body),
             Paragraph("<font color='#E11D48'><b>P1 (High)</b></font>", table_body),
             Paragraph("Medium (3d)", table_body),
-            Paragraph("Eliminates polling; ensures sprint planning boards reflect immediate team-wide movements.", table_body)
+            Paragraph("Eliminates polling; ensures sprint planning boards reflect immediate team-wide movements without race conditions.", table_body)
         ],
         [
             Paragraph("<b>2. Three-Point PERT & Monte Carlo Risk</b><br/>Allow entering optimistic (a), most likely (m), and pessimistic (b) durations with probability curves.", table_body),
             Paragraph("<font color='#E11D48'><b>P1 (High)</b></font>", table_body),
             Paragraph("Medium (2d)", table_body),
-            Paragraph("Elevates deterministic CPM to probabilistic schedule forecasting ($E = \\frac{a+4m+b}{6}$) with 95% confidence dates.", table_body)
+            Paragraph("Elevates deterministic CPM to probabilistic schedule forecasting ($E = \\frac{a+4m+b}{6}$) with 95% confidence delivery dates.", table_body)
         ],
         [
             Paragraph("<b>3. Automated Webhook & Slack Alerts</b><br/>Push notifications for WIP cap breaches, sprint scope creep &gt;15%, and critical path slippages.", table_body),
@@ -316,25 +304,13 @@ def build_pdf(filename="PulseBoard_Pending_and_Improvements.pdf"):
             Paragraph("Provides proactive delivery alarms to project managers without requiring active dashboard polling.", table_body)
         ],
         [
-            Paragraph("<b>4. GitHub & GitLab PR Linking</b><br/>Link Git commits and PR merges to Task IDs (e.g. <code>fixes #TASK-42</code>) to automatically move cards to Done.", table_body),
-            Paragraph("<font color='#D97706'><b>P2 (Med)</b></font>", table_body),
-            Paragraph("Medium (3d)", table_body),
-            Paragraph("Bridges developer workflow directly with project tracking; guarantees cycle time metrics are 100% automated.", table_body)
-        ],
-        [
-            Paragraph("<b>5. Resource Leveling & Smoothing Engine</b><br/>Algorithmic scheduling recommendations when a team member is allocated &gt;40 hours in a single sprint week.", table_body),
-            Paragraph("<font color='#D97706'><b>P2 (Med)</b></font>", table_body),
-            Paragraph("High (4d)", table_body),
-            Paragraph("Prevents team burnout and effort bottlenecks by shifting non-critical tasks within available float ($TF$).", table_body)
-        ],
-        [
-            Paragraph("<b>6. Executive PDF & CSV Report Generator</b><br/>One-click downloadable delivery report containing sprint burndown, velocity tables, and audit logs.", table_body),
+            Paragraph("<b>4. Executive PDF & CSV Report Generator</b><br/>One-click downloadable delivery report containing sprint burndown, velocity tables, and audit logs.", table_body),
             Paragraph("<font color='#059669'><b>P3 (Norm)</b></font>", table_body),
             Paragraph("Small (1d)", table_body),
             Paragraph("Facilitates stakeholder status reporting, client milestone sign-offs, and academic grading documentation.", table_body)
         ],
         [
-            Paragraph("<b>7. Enterprise SSO & OAuth Providers</b><br/>Sign in with Google Workspace, GitHub, or Microsoft Azure AD; organization multi-tenancy support.", table_body),
+            Paragraph("<b>5. Enterprise SSO & OAuth Providers</b><br/>Sign in with Google Workspace, GitHub, or Microsoft Azure AD; organization multi-tenancy support.", table_body),
             Paragraph("<font color='#059669'><b>P3 (Norm)</b></font>", table_body),
             Paragraph("Medium (2d)", table_body),
             Paragraph("Streamlines enterprise adoption and academic lab onboarding with federated identity management.", table_body)
@@ -346,91 +322,15 @@ def build_pdf(filename="PulseBoard_Pending_and_Improvements.pdf"):
         ('BOX', (0,0), (-1,-1), 0.5, c_border),
         ('INNERGRID', (0,0), (-1,-1), 0.5, c_border),
         ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, c_bg_light]),
-        ('TOPPADDING', (0,0), (-1,-1), 3),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
         ('LEFTPADDING', (0,0), (-1,-1), 5),
         ('RIGHTPADDING', (0,0), (-1,-1), 5),
     ]))
     story.append(t_road)
 
-    # PAGE 3 BREAK
-    story.append(PageBreak())
-
-    # =========================================================================
-    # PAGE 3: SECTION 4 (TEAM DELIVERABLES) & SECTION 5 (VIVA DEFENSE GUIDE)
-    # =========================================================================
-    story.append(Paragraph("4. Individual Team Deliverable Matrix (CS447 Work Allocation)", h1_style))
-    story.append(Paragraph(
-        "Cross-referencing Slide 14 of the Group 9 presentation, the delivered features and future roadmap align with each member's domain:",
-        body_style
-    ))
-
-    team_data = [
-        [Paragraph("Team Member", table_header), Paragraph("Assigned SPM Domain", table_header), Paragraph("Delivered Capabilities (Shipped & Verified)", table_header), Paragraph("Phase 2 Ownership & Improvements", table_header)],
-        [
-            Paragraph("<b>Tushar Shukla</b><br/>(202351149)", table_body),
-            Paragraph("<b>Project Scheduling & Effort</b>", table_body),
-            Paragraph("Pure CPM scheduling engine, Topological sort, Cycle detection (409), Float calculations, SVG Gantt & PERT charts, Time tracking, Planned vs Actual hours, Interactive Dependency modal.", table_body),
-            Paragraph("Monte Carlo risk simulation, Resource leveling & workload smoothing heuristic.", table_body)
-        ],
-        [
-            Paragraph("<b>Shlok Chauhan</b><br/>(202351131)", table_body),
-            Paragraph("<b>Flow Analytics, Dashboard & AI</b>", table_body),
-            Paragraph("Burndown aggregations, Velocity trends, Cumulative Flow (CFD), Cycle Time percentiles, 6 Health status tiles, Fact-grounded AI delivery digest & AI work breakdown.", table_body),
-            Paragraph("Automated Slack/Discord alert webhooks, Executive PDF/CSV delivery report export.", table_body)
-        ],
-        [
-            Paragraph("<b>Keshav Badaya</b><br/>(202351065)", table_body),
-            Paragraph("<b>Board / List / Task CRUD</b>", table_body),
-            Paragraph("Board CRUD, List CRUD with <code>statusKey</code> sync, Task CRUD, Sprint creation modal, UI density toggles, filter chips, Command Palette (&#8984;K), Shortcuts modal (?).", table_body),
-            Paragraph("Socket.io real-time collaborative drag sync, multi-board summary dashboard.", table_body)
-        ],
-        [
-            Paragraph("<b>Mohli Thapa</b><br/>(202351084)", table_body),
-            Paragraph("<b>Auth, RBAC & Audit Trail</b>", table_body),
-            Paragraph("JWT authentication & bcrypt, 4-tier RBAC middleware, Members panel with role badges & owner crown, Activity Drawer with cursor pagination, Rollback undo alerts.", table_body),
-            Paragraph("OAuth2/SSO provider integrations, custom role permission rulebuilder.", table_body)
-        ]
-    ]
-    t_team = Table(team_data, colWidths=[1.3*inch, 1.4*inch, 2.5*inch, 2.0*inch])
-    t_team.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), c_brand),
-        ('BOX', (0,0), (-1,-1), 0.5, c_border),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, c_border),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, c_bg_light]),
-        ('TOPPADDING', (0,0), (-1,-1), 3.5),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3.5),
-        ('LEFTPADDING', (0,0), (-1,-1), 5),
-        ('RIGHTPADDING', (0,0), (-1,-1), 5),
-    ]))
-    story.append(t_team)
-    story.append(Spacer(1, 8))
-
-    story.append(Paragraph("5. Evaluator Defense & Technical Viva Guidelines", h1_style))
-    story.append(Paragraph(
-        "Key questions anticipated during faculty review, accompanied by academically sound defense arguments:",
-        body_style
-    ))
-
-    qa_points = [
-        "<b>Q1: Why did you construct custom SVG Gantt and PERT charts instead of using an off-the-shelf NPM library?</b><br/>"
-        "<i>Academic Defense:</i> Third-party charting packages (e.g. D3, Frappe, Highcharts) introduce significant bundle bloat and enforce rigid DOM drag paradigms that conflict with responsive CSS. "
-        "A bespoke single-SVG implementation guarantees 60fps rendering, seamless dark/light theme integration via CSS variables, zero runtime dependencies, and direct mathematical binding to our pure CPM scheduling engine.",
-        
-        "<b>Q2: How do you guarantee the AI Delivery Digest doesn't hallucinate delivery statistics?</b><br/>"
-        "<i>Academic Defense:</i> We enforce a strict 'facts-first' architecture. Server-side Mongoose aggregation pipelines compute ground truth first (scope creep %, WIP cap breaches, actual vs estimated hours variance, blocked critical-path cards). "
-        "These facts are structured into a deterministic prompt, and the backend explicitly verifies and overwrites any metrics before sending the response to the client.",
-        
-        "<b>Q3: How does PulseBoard prevent cyclic deadlocks in task scheduling?</b><br/>"
-        "<i>Academic Defense:</i> When a dependency is created, the server tests the hypothetical edge using Kahn's topological sorting algorithm before database insertion. "
-        "If a directed cycle is detected ($A \\rightarrow B \\rightarrow A$), the database write is aborted, a <code>CycleError</code> is thrown, and an HTTP 409 Conflict response detailing the cycle chain is returned, rendering an alert banner in the UI."
-    ]
-    for q in qa_points:
-        story.append(Paragraph(q, body_style))
-        story.append(Spacer(1, 3))
-
     doc.build(story, canvasmaker=NumberedCanvas)
-    print(f"Successfully generated clean 3-page {filename}")
+    print(f"Successfully generated clean 2-page {filename}")
 
 if __name__ == "__main__":
     out_pdf = "PulseBoard_Pending_and_Improvements.pdf"
