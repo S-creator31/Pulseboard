@@ -3,17 +3,18 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 
-const activityLogRoutes = require('./routes/activityLogRoutes')
+const activityLogRoutes = require('./routes/activityLogRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
+const sprintRoutes = require('./routes/sprintRoutes');
+const timeEntryRoutes = require('./routes/timeEntryRoutes');
+const dependencyRoutes = require('./routes/dependencyRoutes');
+const aiRoutes = require('./routes/aiRoutes');
 
 dotenv.config();
 connectDB();
 
 const app = express();
 
-
-// Allow local dev (any port on localhost/127.0.0.1) plus whatever the
-// deployed frontend origin is set to via env. The old hardcoded single
-// origin blocked local integration testing entirely.
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3100',
@@ -30,21 +31,27 @@ app.use(cors({
   credentials: true
 }));
 
-
 app.use(express.json());
 
 app.get('/', (req, res) => {
-    res.send('Welcome to the Backend of Trello-lite-App');
-}) 
+    res.send('Welcome to the Backend of PulseBoard');
+});
 
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/boards', require('./routes/boardRoutes'));
 app.use('/api/lists', require('./routes/listRoutes'));
-app.use('/api/tasks', require('./routes/taskRoutes'))
-app.use('/api/activity-logs', activityLogRoutes)
+app.use('/api/tasks', require('./routes/taskRoutes'));
+app.use('/api/activity-logs', activityLogRoutes);
+app.use('/api/sprints', sprintRoutes);
+app.use('/api/dependencies', dependencyRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api', analyticsRoutes);
+app.use('/api', timeEntryRoutes);
 
-const PORT  = 5000;
+const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-    console.log(`Server running on ${PORT}`); 
+    console.log(`PulseBoard Server running on port ${PORT}`);
 });
+
+module.exports = app;

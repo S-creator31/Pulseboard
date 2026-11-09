@@ -70,8 +70,32 @@
   --font-mono: var(--font-jetbrains);
 }
 
+:root[data-theme="dark"] {
+  --color-brand: #9b7bff;
+  --color-brand-strong: #b498ff;
+  --color-brand-soft: #241a45;
+  --color-accent: #ff8177;
+  --color-accent-soft: #3a1f22;
+  --color-success: #3fd489;
+  --color-success-soft: #113228;
+  --color-warning: #ffb454;
+  --color-warning-soft: #3a2a10;
+  --color-danger: #ff7a70;
+  --color-danger-soft: #3a1a18;
+  --color-ink: #f1eefc;
+  --color-ink-muted: #a79fc7;
+  --color-paper: #100b21;
+  --color-surface: #191231;
+  --color-surface-2: #211a3d;
+  --color-line: #322a55;
+  --shadow-glow: 0 8px 28px -6px rgb(155 123 255 / 0.35);
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.35), 0 10px 28px rgb(0 0 0 / 0.35);
+  --background: var(--color-paper);
+  --foreground: var(--color-ink);
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --color-brand: #9b7bff;
     --color-brand-strong: #b498ff;
     --color-brand-soft: #241a45;

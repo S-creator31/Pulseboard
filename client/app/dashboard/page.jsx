@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import PulseLogo from "@/components/PulseLogo";
+import ThemeToggle from "@/components/ThemeToggle";
 import { boardColor } from "@/lib/colors";
 
 export default function Dashboard() {
@@ -63,6 +64,7 @@ export default function Dashboard() {
                 <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
                     <PulseLogo size="sm" />
                     <div className="flex items-center gap-3">
+                        <ThemeToggle />
                         <AccountBadge />
                         <button
                             onClick={logout}

@@ -3,14 +3,16 @@ const List = require('../models/List');
 const { logActivity } = require('./activityLogController');
 
 exports.createList = async (req, res) => {
-    const {title, boardId} = req.body;
+    const { title, boardId, statusKey } = req.body;
 
-    try{
-        const list = await List.create({title, board: boardId});
+    try {
+        const payload = { title, board: boardId };
+        if (statusKey) payload.statusKey = statusKey;
+        const list = await List.create(payload);
 
         res.status(201).json(list);
-    }catch(err){
-        res.status(500).json({message: err.message});
+    } catch (err) {
+        res.status(500).json({ message: err.message });
     }
 };
 
