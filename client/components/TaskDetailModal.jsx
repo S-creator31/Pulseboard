@@ -532,8 +532,8 @@ export default function TaskDetailModal({
                   <select
                     value={assignedTo}
                     onChange={(e) => setAssignedTo(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded-xl border outline-none"
-                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface)" }}
+                    className="themed-select w-full px-2.5 py-2 rounded-xl border outline-none"
+                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface-2)", color: "var(--color-ink)" }}
                   >
                     <option value="">Unassigned</option>
                     {members.map((m, idx) => {
@@ -552,8 +552,8 @@ export default function TaskDetailModal({
                   <select
                     value={priority}
                     onChange={(e) => setPriority(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded-xl border outline-none capitalize"
-                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface)" }}
+                    className="themed-select w-full px-2.5 py-2 rounded-xl border outline-none capitalize"
+                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface-2)", color: "var(--color-ink)" }}
                   >
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>

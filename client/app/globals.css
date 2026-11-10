@@ -148,6 +148,11 @@ h1, h2, h3, h4, .font-display {
   outline-offset: 2px;
 }
 
+.themed-select option {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+}
+
 /* Pulseboard brand gradient — used sparingly, for hero/logo moments only */
 .pulse-gradient {
   background: linear-gradient(135deg, var(--color-brand) 0%, var(--color-accent) 100%);

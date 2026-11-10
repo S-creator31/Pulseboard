@@ -37,7 +37,7 @@ export default function ActivityLogDrawer({
       params.set('limit', '25');
 
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/activity-logs/board/${boardId}?${params.toString()}`,
+        `${process.env.NEXT_PUBLIC_API_URL}/activity-logs/${boardId}?${params.toString()}`,
         {
           headers: token ? { Authorization: `Bearer ${token}` } : {}
         }
@@ -124,8 +124,8 @@ export default function ActivityLogDrawer({
           <select
             value={actorFilter}
             onChange={(e) => setActorFilter(e.target.value)}
-            className="px-2.5 py-1 rounded-lg border outline-none bg-white text-xs cursor-pointer"
-            style={{ borderColor: "var(--color-line)" }}
+            className="themed-select px-2.5 py-1 rounded-lg border outline-none text-xs cursor-pointer"
+            style={{ borderColor: "var(--color-line)", background: "var(--color-surface-2)", color: "var(--color-ink)" }}
           >
             <option value="">All Team Members</option>
             {members.map((m, idx) => {
@@ -141,8 +141,8 @@ export default function ActivityLogDrawer({
           <select
             value={actionFilter}
             onChange={(e) => setActionFilter(e.target.value)}
-            className="px-2.5 py-1 rounded-lg border outline-none bg-white text-xs cursor-pointer"
-            style={{ borderColor: "var(--color-line)" }}
+            className="themed-select px-2.5 py-1 rounded-lg border outline-none text-xs cursor-pointer"
+            style={{ borderColor: "var(--color-line)", background: "var(--color-surface-2)", color: "var(--color-ink)" }}
           >
             <option value="">All Actions</option>
             <option value="created">Created</option>
