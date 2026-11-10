@@ -1,0 +1,1892 @@
+diff --git a/client/app/board/[id]/risk/page.jsx b/client/app/board/[id]/risk/page.jsx
+new file mode 100644
+index 0000000..da453b1
+--- /dev/null
++++ b/client/app/board/[id]/risk/page.jsx
+@@ -0,0 +1,682 @@
++'use client';
++
++import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
++import { useParams } from 'next/navigation';
++import { format, parseISO } from 'date-fns';
++import { toast } from 'sonner';
++import {
++  ResponsiveContainer,
++  ComposedChart,
++  Bar,
++  Line,
++  XAxis,
++  YAxis,
++  Tooltip,
++  CartesianGrid,
++  ReferenceLine
++} from 'recharts';
++import { useAuth } from '@/context/AuthContext';
++import BoardNav from '@/components/BoardNav';
++
++const API = process.env.NEXT_PUBLIC_API_URL;
++const ITERATION_OPTIONS = [1000, 5000, 10000, 20000, 50000];
++const FIELDS = [
++  { key: 'optimistic', label: 'Optimistic (a)' },
++  { key: 'mostLikely', label: 'Most likely (m)' },
++  { key: 'pessimistic', label: 'Pessimistic (b)' }
++];
++
++function localToday() {
++  const d = new Date();
++  const pad = (n) => String(n).padStart(2, '0');
++  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
++}
++
++function fmtDate(iso) {
++  if (!iso) return '—';
++  try {
++    return format(parseISO(iso), 'd MMM yyyy');
++  } catch {
++    return iso;
++  }
++}
++
++function fmtDays(n, digits = 1) {
++  return typeof n === 'number' ? `${n.toFixed(digits)}d` : '—';
++}
++
++function pct(p) {
++  return typeof p === 'number' ? `${Math.round(p * 100)}%` : '—';
++}
++
++/** Validates the three draft inputs for a task row. */
++function evaluateDraft(values) {
++  const raw = [values.optimistic, values.mostLikely, values.pessimistic];
++  if (raw.every((v) => v === '')) return { state: 'empty' };
++  const nums = raw.map((v) => (v === '' ? NaN : Number(v)));
++  if (nums.some((n) => !Number.isFinite(n))) return { state: 'incomplete' };
++  if (nums.some((n) => n < 0)) return { state: 'invalid', message: 'Values cannot be negative' };
++  const [a, m, b] = nums;
++  if (!(a <= m && m <= b)) {
++    return { state: 'invalid', message: 'Needs optimistic ≤ most likely ≤ pessimistic' };
++  }
++  return { state: 'valid', expected: (a + 4 * m + b) / 6, stdDev: (b - a) / 6, nums };
++}
++
++function Tile({ label, value, sub, accent }) {
++  return (
++    <div
++      className="rounded-2xl border p-4 relative overflow-hidden shadow-sm"
++      style={{ background: 'var(--color-surface)', borderColor: 'var(--color-line)' }}
++    >
++      <div className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: accent }} />
++      <span className="text-[11px] font-medium block" style={{ color: 'var(--color-ink-muted)' }}>{label}</span>
++      <div className="font-data text-2xl font-bold my-1 tracking-tight" style={{ color: 'var(--color-ink)' }}>{value}</div>
++      <p className="text-[11px] leading-snug" style={{ color: 'var(--color-ink-muted)' }}>{sub}</p>
++    </div>
++  );
++}
++
++export default function RiskPage() {
++  const { id: boardId } = useParams();
++  const { user } = useAuth();
++  const token = user?.token;
++
++  const [board, setBoard] = useState(null);
++  const [data, setData] = useState(null);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState('');
++
++  // Simulation controls
++  const [iterations, setIterations] = useState(10000);
++  const [distribution, setDistribution] = useState('pert');
++  const [startDate, setStartDate] = useState('');
++  const [deadline, setDeadline] = useState('');
++
++  // Unsaved edits of the three-point inputs: { [taskId]: { optimistic, mostLikely, pessimistic } }
++  const [edits, setEdits] = useState({});
++  const [savingId, setSavingId] = useState(null);
++
++  const requestCounter = useRef(0);
++  const didInit = useRef(false);
++
++  const runAnalysis = useCallback(async () => {
++    if (!token || !boardId) return;
++    const myRequest = ++requestCounter.current;
++    setLoading(true);
++    setError('');
++    try {
++      const params = new URLSearchParams({ iterations: String(iterations), distribution });
++      if (startDate) params.set('startDate', startDate);
++      if (deadline) params.set('deadline', deadline);
++
++      const res = await fetch(`${API}/boards/${boardId}/risk?${params.toString()}`, {
++        headers: { Authorization: `Bearer ${token}` }
++      });
++      const body = await res.json().catch(() => ({}));
++      if (myRequest !== requestCounter.current) return; // a newer run superseded this one
++      if (!res.ok) {
++        setError(body.message || 'Could not compute schedule risk');
++        return;
++      }
++      setData(body);
++    } catch (err) {
++      if (myRequest === requestCounter.current) {
++        console.error('Error computing schedule risk:', err);
++        setError('Could not reach the server');
++      }
++    } finally {
++      if (myRequest === requestCounter.current) setLoading(false);
++    }
++  }, [token, boardId, iterations, distribution, startDate, deadline]);
++
++  // Default the start date on the client (avoids a server/client timezone hydration mismatch)
++  useEffect(() => {
++    setStartDate(localToday());
++  }, []);
++
++  useEffect(() => {
++    if (!token || !boardId) return;
++    fetch(`${API}/boards/${boardId}`, { headers: { Authorization: `Bearer ${token}` } })
++      .then((r) => (r.ok ? r.json() : null))
++      .then((b) => b && setBoard(b))
++      .catch((err) => console.error('Error fetching board:', err));
++  }, [token, boardId]);
++
++  // First automatic run once the token and the default start date are available
++  useEffect(() => {
++    if (didInit.current || !token || !boardId || !startDate) return;
++    didInit.current = true;
++    runAnalysis();
++  }, [token, boardId, startDate, runAnalysis]);
++
++  const pert = data?.pert;
++  const mc = data?.monteCarlo;
++  const baseline = data?.baseline;
++  const meta = data?.meta;
++
++  // ---- Task rows (critical first) --------------------------------------------------------
++  const rows = useMemo(() => {
++    if (!pert) return [];
++    return [...pert.tasks].sort((a, b) => {
++      if (a.isCritical !== b.isCritical) return a.isCritical ? -1 : 1;
++      return a.es - b.es;
++    });
++  }, [pert]);
++
++  const valuesFor = (row) => ({
++    optimistic: edits[row.id]?.optimistic ?? (row.hasEstimate ? String(row.optimistic) : ''),
++    mostLikely: edits[row.id]?.mostLikely ?? (row.hasEstimate ? String(row.mostLikely) : ''),
++    pessimistic: edits[row.id]?.pessimistic ?? (row.hasEstimate ? String(row.pessimistic) : '')
++  });
++
++  const setField = (row, key, value) => {
++    setEdits((prev) => ({ ...prev, [row.id]: { ...valuesFor(row), ...prev[row.id], [key]: value } }));
++  };
++
++  const clearEdits = (id) => {
++    setEdits((prev) => {
++      const next = { ...prev };
++      delete next[id];
++      return next;
++    });
++  };
++
++  const saveEstimate = async (row, nums) => {
++    setSavingId(row.id);
++    try {
++      const [optimistic, mostLikely, pessimistic] = nums;
++      const res = await fetch(`${API}/boards/${boardId}/estimates/${row.id}`, {
++        method: 'PUT',
++        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
++        body: JSON.stringify({ optimistic, mostLikely, pessimistic })
++      });
++      const body = await res.json().catch(() => ({}));
++      if (!res.ok) {
++        toast.error(body.message || 'Could not save estimate');
++        return;
++      }
++      toast.success(`Estimate saved for "${row.title}"`);
++      clearEdits(row.id);
++      await runAnalysis();
++    } catch {
++      toast.error('Could not save estimate');
++    } finally {
++      setSavingId(null);
++    }
++  };
++
++  const removeEstimate = async (row) => {
++    setSavingId(row.id);
++    try {
++      const res = await fetch(`${API}/boards/${boardId}/estimates/${row.id}`, {
++        method: 'DELETE',
++        headers: { Authorization: `Bearer ${token}` }
++      });
++      const body = await res.json().catch(() => ({}));
++      if (!res.ok) {
++        toast.error(body.message || 'Could not remove estimate');
++        return;
++      }
++      toast.success(`Estimate removed for "${row.title}"`);
++      clearEdits(row.id);
++      await runAnalysis();
++    } catch {
++      toast.error('Could not remove estimate');
++    } finally {
++      setSavingId(null);
++    }
++  };
++
++  // ---- Chart data -----------------------------------------------------------------------
++  const chart = useMemo(() => {
++    if (!mc || !mc.histogram || mc.histogram.length < 2) return null;
++    const bins = mc.histogram;
++    const width = bins[0].to - bins[0].from;
++    const decimals = width < 0.1 ? 2 : width < 1 ? 1 : 0;
++    const points = bins.map((b) => {
++      const mid = (b.from + b.to) / 2;
++      return {
++        label: mid.toFixed(decimals),
++        from: b.from,
++        to: b.to,
++        probability: Math.round(b.probability * 1000) / 10,
++        cumulative: Math.round(b.cumulative * 1000) / 10
++      };
++    });
++    const labelFor = (value) => {
++      if (typeof value !== 'number') return null;
++      const hit = points.find((p, i) => value >= p.from && (value < p.to || i === points.length - 1));
++      return value < points[0].from || value > points[points.length - 1].to ? null : hit?.label ?? null;
++    };
++    const markers = [
++      { key: 'cpm', text: 'CPM', value: baseline?.projectDuration, color: 'var(--color-ink-muted)' },
++      { key: 'p50', text: 'P50', value: mc.percentiles.p50, color: 'var(--color-brand)' },
++      { key: 'p95', text: 'P95', value: mc.percentiles.p95, color: 'var(--color-accent)' },
++      { key: 'deadline', text: 'Deadline', value: meta?.deadlineDays, color: 'var(--color-danger)' }
++    ]
++      .map((m) => ({ ...m, label: labelFor(m.value) }))
++      .filter((m) => m.label !== null);
++    return { points, markers };
++  }, [mc, baseline, meta]);
++
++  const hasUncertainty = !!mc && mc.stdDev > 0;
++  const p95 = mc?.confidence?.find((c) => c.level === 0.95);
++  const pert95 = pert?.confidence?.find((c) => c.level === 0.95);
++  const deadlineP = mc?.deadlineProbability;
++  const deadlineAccent =
++    deadlineP == null ? 'var(--color-line)' : deadlineP >= 0.85 ? 'var(--color-success)' : deadlineP >= 0.5 ? 'var(--color-warning)' : 'var(--color-danger)';
++
++  const inputStyle = {
++    background: 'var(--color-surface)',
++    borderColor: 'var(--color-line)',
++    color: 'var(--color-ink)'
++  };
++
++  return (
++    <div className="min-h-screen" style={{ background: 'var(--color-paper)' }}>
++      <BoardNav board={board} activeTab="risk" members={board?.members || []} />
++
++      <main className="max-w-[1500px] mx-auto px-4 sm:px-6 py-4 space-y-5">
++        {/* Header + controls */}
++        <section
++          className="rounded-2xl border p-4 flex flex-wrap items-end justify-between gap-4"
++          style={{ background: 'var(--color-surface)', borderColor: 'var(--color-line)' }}
++        >
++          <div className="max-w-xl">
++            <h2 className="font-display text-lg font-semibold" style={{ color: 'var(--color-ink)' }}>
++              Schedule Risk — Three-Point PERT &amp; Monte Carlo
++            </h2>
++            <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--color-ink-muted)' }}>
++              Enter optimistic, most likely and pessimistic durations per task. Expected duration is
++              E = (a + 4m + b) / 6. The simulation samples every estimated task thousands of times to show
++              how likely each delivery date really is. Tasks without an estimate keep their CPM duration.
++            </p>
++          </div>
++
++          <div className="flex flex-wrap items-end gap-3">
++            <label className="text-[11px] font-medium flex flex-col gap-1" style={{ color: 'var(--color-ink-muted)' }}>
++              Project start
++              <input
++                type="date"
++                value={startDate}
++                onChange={(e) => setStartDate(e.target.value)}
++                className="px-2 py-1.5 text-xs rounded-lg border font-data"
++                style={inputStyle}
++              />
++            </label>
++            <label className="text-[11px] font-medium flex flex-col gap-1" style={{ color: 'var(--color-ink-muted)' }}>
++              Target deadline
++              <input
++                type="date"
++                value={deadline}
++                min={startDate || undefined}
++                onChange={(e) => setDeadline(e.target.value)}
++                className="px-2 py-1.5 text-xs rounded-lg border font-data"
++                style={inputStyle}
++              />
++            </label>
++            <label className="text-[11px] font-medium flex flex-col gap-1" style={{ color: 'var(--color-ink-muted)' }}>
++              Distribution
++              <select
++                value={distribution}
++                onChange={(e) => setDistribution(e.target.value)}
++                className="px-2 py-1.5 text-xs rounded-lg border cursor-pointer"
++                style={inputStyle}
++              >
++                <option value="pert">Beta-PERT</option>
++                <option value="triangular">Triangular</option>
++              </select>
++            </label>
++            <label className="text-[11px] font-medium flex flex-col gap-1" style={{ color: 'var(--color-ink-muted)' }}>
++              Iterations
++              <select
++                value={iterations}
++                onChange={(e) => setIterations(Number(e.target.value))}
++                className="px-2 py-1.5 text-xs rounded-lg border cursor-pointer font-data"
++                style={inputStyle}
++              >
++                {ITERATION_OPTIONS.map((n) => (
++                  <option key={n} value={n}>{n.toLocaleString()}</option>
++                ))}
++              </select>
++            </label>
++            <button
++              type="button"
++              onClick={runAnalysis}
++              disabled={loading || !token}
++              className="px-4 py-2 text-xs font-semibold rounded-lg cursor-pointer text-white disabled:opacity-60 disabled:cursor-not-allowed"
++              style={{ background: 'var(--color-brand)' }}
++            >
++              {loading ? 'Running…' : 'Run simulation'}
++            </button>
++          </div>
++        </section>
++
++        {error && (
++          <div
++            role="alert"
++            className="rounded-xl border p-3 text-xs"
++            style={{ background: 'var(--color-danger-soft)', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
++          >
++            {error}
++          </div>
++        )}
++
++        {!data && loading && (
++          <div className="text-sm py-16 text-center" style={{ color: 'var(--color-ink-muted)' }}>
++            Running simulation…
++          </div>
++        )}
++
++        {data && !pert && (
++          <div className="text-sm py-16 text-center" style={{ color: 'var(--color-ink-muted)' }}>
++            This board has no tasks yet. Add tasks and dependencies to forecast delivery risk.
++          </div>
++        )}
++
++        {data && pert && mc && (
++          <>
++            {/* Summary tiles */}
++            <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
++              <Tile
++                label="Deterministic CPM"
++                value={fmtDays(baseline.projectDuration)}
++                sub={hasUncertainty
++                  ? `Only ${pct(mc.probabilityOfBaseline)} likely to hold given your estimates`
++                  : 'No three-point estimates yet — add some below'}
++                accent="var(--color-ink-muted)"
++              />
++              <Tile
++                label="PERT expected duration"
++                value={fmtDays(pert.projectDuration)}
++                sub={`σ ${fmtDays(pert.stdDev, 2)} over critical chain · mean of simulation ${fmtDays(mc.mean)}`}
++                accent="var(--color-brand)"
++              />
++              <Tile
++                label="95% confidence delivery"
++                value={p95 ? fmtDate(p95.date) : '—'}
++                sub={p95
++                  ? `Simulation: ${fmtDays(p95.days)} · normal approx.: ${pert95 ? `${fmtDays(pert95.days)} (${fmtDate(pert95.date)})` : '—'}`
++                  : ''}
++                accent="var(--color-accent)"
++              />
++              <Tile
++                label={deadline ? `Chance of meeting ${fmtDate(deadline)}` : 'Chance of meeting deadline'}
++                value={deadlineP == null ? '—' : pct(deadlineP)}
++                sub={deadlineP == null
++                  ? 'Pick a target deadline above to see the probability'
++                  : `Normal approximation: ${pct(pert.deadlineProbability)}`}
++                accent={deadlineAccent}
++              />
++            </section>
++
++            {/* Probability curve */}
++            <section
++              className="rounded-2xl border p-4"
++              style={{ background: 'var(--color-surface)', borderColor: 'var(--color-line)' }}
++            >
++              <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
++                <h3 className="font-display text-sm font-semibold uppercase tracking-wider" style={{ color: 'var(--color-ink-muted)' }}>
++                  Project duration probability curve
++                </h3>
++                <span className="text-[11px] font-data" style={{ color: 'var(--color-ink-muted)' }}>
++                  {mc.iterations.toLocaleString()} runs · {mc.distribution === 'pert' ? 'Beta-PERT' : 'Triangular'} · range {fmtDays(mc.min)}–{fmtDays(mc.max)}
++                </span>
++              </div>
++
++              {chart ? (
++                <div style={{ width: '100%', height: 340 }}>
++                  <ResponsiveContainer width="100%" height="100%">
++                    <ComposedChart data={chart.points} margin={{ top: 22, right: 12, left: 0, bottom: 18 }}>
++                      <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" vertical={false} />
++                      <XAxis
++                        dataKey="label"
++                        tick={{ fontSize: 11, fill: 'var(--color-ink-muted)' }}
++                        interval="preserveStartEnd"
++                        label={{ value: 'Project duration (days)', position: 'insideBottom', offset: -10, fontSize: 11, fill: 'var(--color-ink-muted)' }}
++                      />
++                      <YAxis
++                        yAxisId="prob"
++                        tick={{ fontSize: 11, fill: 'var(--color-ink-muted)' }}
++                        tickFormatter={(v) => `${v}%`}
++                        width={44}
++                      />
++                      <YAxis
++                        yAxisId="cdf"
++                        orientation="right"
++                        domain={[0, 100]}
++                        tick={{ fontSize: 11, fill: 'var(--color-ink-muted)' }}
++                        tickFormatter={(v) => `${v}%`}
++                        width={44}
++                      />
++                      <Tooltip
++                        formatter={(value, name) => [`${value}%`, name]}
++                        labelFormatter={(label) => `≈ ${label} days`}
++                        contentStyle={{
++                          background: 'var(--color-surface)',
++                          border: '1px solid var(--color-line)',
++                          borderRadius: 12,
++                          fontSize: 12
++                        }}
++                      />
++                      <Bar
++                        yAxisId="prob"
++                        dataKey="probability"
++                        name="Probability of finishing in this range"
++                        fill="var(--color-brand)"
++                        fillOpacity={0.35}
++                        radius={[3, 3, 0, 0]}
++                      />
++                      <Line
++                        yAxisId="cdf"
++                        type="monotone"
++                        dataKey="cumulative"
++                        name="Chance of finishing by then"
++                        stroke="var(--color-accent)"
++                        strokeWidth={2.5}
++                        dot={false}
++                      />
++                      {chart.markers.map((m) => (
++                        <ReferenceLine
++                          key={m.key}
++                          yAxisId="prob"
++                          x={m.label}
++                          stroke={m.color}
++                          strokeDasharray="4 3"
++                          strokeWidth={1.5}
++                          label={{ value: m.text, position: 'top', fontSize: 10, fill: m.color }}
++                        />
++                      ))}
++                    </ComposedChart>
++                  </ResponsiveContainer>
++                </div>
++              ) : (
++                <div className="text-xs py-12 text-center" style={{ color: 'var(--color-ink-muted)' }}>
++                  Every task currently has a fixed duration, so the outcome is a single date. Add optimistic and
++                  pessimistic estimates below to see the probability curve.
++                </div>
++              )}
++            </section>
++
++            {/* Confidence table */}
++            <section
++              className="rounded-2xl border p-4 overflow-x-auto"
++              style={{ background: 'var(--color-surface)', borderColor: 'var(--color-line)' }}
++            >
++              <h3 className="font-display text-sm font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--color-ink-muted)' }}>
++                Delivery dates by confidence level
++              </h3>
++              <table className="w-full text-xs">
++                <thead>
++                  <tr style={{ color: 'var(--color-ink-muted)' }}>
++                    <th className="text-left font-semibold pb-2">Confidence</th>
++                    <th className="text-left font-semibold pb-2">Monte Carlo</th>
++                    <th className="text-left font-semibold pb-2">Date</th>
++                    <th className="text-left font-semibold pb-2">PERT (normal approx.)</th>
++                    <th className="text-left font-semibold pb-2">Date</th>
++                  </tr>
++                </thead>
++                <tbody>
++                  {mc.confidence.map((c, i) => {
++                    const p = pert.confidence[i];
++                    return (
++                      <tr key={c.level} className="border-t" style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink)' }}>
++                        <td className="py-2 font-semibold">{pct(c.level)}</td>
++                        <td className="py-2 font-data">{fmtDays(c.days)}</td>
++                        <td className="py-2 font-data">{fmtDate(c.date)}</td>
++                        <td className="py-2 font-data">{p ? fmtDays(p.days) : '—'}</td>
++                        <td className="py-2 font-data">{p ? fmtDate(p.date) : '—'}</td>
++                      </tr>
++                    );
++                  })}
++                </tbody>
++              </table>
++              <p className="text-[11px] mt-3 leading-relaxed" style={{ color: 'var(--color-ink-muted)' }}>
++                Dates are the project start plus the duration rounded up to whole calendar days. The normal
++                approximation only looks at the critical chain, so it is optimistic when several paths are close
++                in length; the simulation accounts for that.
++              </p>
++            </section>
++
++            {/* Estimates + criticality */}
++            <section
++              className="rounded-2xl border p-4 overflow-x-auto"
++              style={{ background: 'var(--color-surface)', borderColor: 'var(--color-line)' }}
++            >
++              <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
++                <h3 className="font-display text-sm font-semibold uppercase tracking-wider" style={{ color: 'var(--color-ink-muted)' }}>
++                  Three-point estimates &amp; criticality
++                </h3>
++                <span className="text-[11px]" style={{ color: 'var(--color-ink-muted)' }}>
++                  {meta.tasksWithEstimates} of {meta.tasksTotal} tasks estimated · values in days
++                </span>
++              </div>
++
++              <table className="w-full text-xs min-w-[860px]">
++                <thead>
++                  <tr style={{ color: 'var(--color-ink-muted)' }}>
++                    <th className="text-left font-semibold pb-2">Task</th>
++                    {FIELDS.map((f) => (
++                      <th key={f.key} className="text-left font-semibold pb-2">{f.label}</th>
++                    ))}
++                    <th className="text-left font-semibold pb-2">E · σ</th>
++                    <th className="text-left font-semibold pb-2">Criticality</th>
++                    <th className="pb-2" />
++                  </tr>
++                </thead>
++                <tbody>
++                  {rows.map((row) => {
++                    const values = valuesFor(row);
++                    const draft = evaluateDraft(values);
++                    const dirty = !!edits[row.id];
++                    const ci = mc.criticalityIndex[row.id] ?? 0;
++                    const busy = savingId === row.id;
++                    const placeholder = String(row.expected);
++
++                    return (
++                      <tr key={row.id} className="border-t align-top" style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink)' }}>
++                        <td className="py-2 pr-3">
++                          <div className="font-medium">{row.title}</div>
++                          {row.isCritical && (
++                            <span
++                              className="inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
++                              style={{ background: 'var(--color-accent-soft)', color: 'var(--color-accent)' }}
++                            >
++                              Critical path
++                            </span>
++                          )}
++                        </td>
++                        {FIELDS.map((f) => (
++                          <td key={f.key} className="py-2 pr-3">
++                            <input
++                              type="number"
++                              min="0"
++                              step="0.5"
++                              inputMode="decimal"
++                              aria-label={`${f.label} for ${row.title}`}
++                              value={values[f.key]}
++                              placeholder={placeholder}
++                              onChange={(e) => setField(row, f.key, e.target.value)}
++                              className="w-20 px-2 py-1 rounded-lg border font-data"
++                              style={inputStyle}
++                            />
++                          </td>
++                        ))}
++                        <td className="py-2 pr-3 font-data whitespace-nowrap">
++                          {draft.state === 'valid' ? (
++                            <>
++                              <span className="font-semibold">{draft.expected.toFixed(2)}d</span>
++                              <span style={{ color: 'var(--color-ink-muted)' }}> · σ {draft.stdDev.toFixed(2)}</span>
++                            </>
++                          ) : draft.state === 'invalid' ? (
++                            <span style={{ color: 'var(--color-danger)' }}>{draft.message}</span>
++                          ) : draft.state === 'incomplete' ? (
++                            <span style={{ color: 'var(--color-ink-muted)' }}>Fill all three</span>
++                          ) : (
++                            <span style={{ color: 'var(--color-ink-muted)' }}>CPM {row.expected}d</span>
++                          )}
++                        </td>
++                        <td className="py-2 pr-3 w-40">
++                          <div className="flex items-center gap-2">
++                            <div className="h-2 flex-1 rounded-full overflow-hidden" style={{ background: 'var(--color-surface-2)' }}>
++                              <div
++                                className="h-full rounded-full"
++                                style={{ width: `${Math.round(ci * 100)}%`, background: ci >= 0.5 ? 'var(--color-accent)' : 'var(--color-brand)' }}
++                              />
++                            </div>
++                            <span className="font-data w-9 text-right">{pct(ci)}</span>
++                          </div>
++                        </td>
++                        <td className="py-2 text-right whitespace-nowrap">
++                          <button
++                            type="button"
++                            disabled={busy || draft.state !== 'valid' || !dirty}
++                            onClick={() => saveEstimate(row, draft.nums)}
++                            className="px-3 py-1 text-[11px] font-semibold rounded-lg cursor-pointer text-white disabled:opacity-40 disabled:cursor-not-allowed"
++                            style={{ background: 'var(--color-brand)' }}
++                          >
++                            {busy ? 'Saving…' : 'Save'}
++                          </button>
++                          {row.hasEstimate && (
++                            <button
++                              type="button"
++                              disabled={busy}
++                              onClick={() => removeEstimate(row)}
++                              className="ml-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-lg border cursor-pointer disabled:opacity-40"
++                              style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink-muted)', background: 'var(--color-surface)' }}
++                              title="Remove the three-point estimate and fall back to the CPM duration"
++                            >
++                              Clear
++                            </button>
++                          )}
++                          {!row.hasEstimate && dirty && (
++                            <button
++                              type="button"
++                              onClick={() => clearEdits(row.id)}
++                              className="ml-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-lg border cursor-pointer"
++                              style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink-muted)', background: 'var(--color-surface)' }}
++                            >
++                              Reset
++                            </button>
++                          )}
++                        </td>
++                      </tr>
++                    );
++                  })}
++                </tbody>
++              </table>
++
++              <p className="text-[11px] mt-3 leading-relaxed" style={{ color: 'var(--color-ink-muted)' }}>
++                Criticality is the share of simulation runs in which a task had zero float — a task that is
++                critical in 40% of runs deserves attention even if it is off the single expected critical path.
++                Estimates are stored separately from the task&apos;s own duration, so the Timeline &amp; CPM view is
++                unchanged.
++              </p>
++            </section>
++          </>
++        )}
++      </main>
++    </div>
++  );
++}
+diff --git a/client/components/BoardNav.jsx b/client/components/BoardNav.jsx
+index 540ffeb..fe0ef39 100644
+--- a/client/components/BoardNav.jsx
++++ b/client/components/BoardNav.jsx
+@@ -85,6 +85,16 @@ export default function BoardNav({
+               >
+                 Timeline & PERT
+               </Link>
++              <Link
++                href={`/board/${boardId}/risk`}
++                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${activeTab === 'risk' ? 'shadow-sm' : ''}`}
++                style={{
++                  background: activeTab === 'risk' ? 'var(--color-surface)' : 'transparent',
++                  color: activeTab === 'risk' ? 'var(--color-brand)' : 'var(--color-ink-muted)'
++                }}
++              >
++                Risk
++              </Link>
+             </nav>
+           )}
+         </div>
+diff --git a/server/app.js b/server/app.js
+index 7d2b579..4f85d31 100644
+--- a/server/app.js
++++ b/server/app.js
+@@ -9,6 +9,7 @@ const sprintRoutes = require('./routes/sprintRoutes');
+ const timeEntryRoutes = require('./routes/timeEntryRoutes');
+ const dependencyRoutes = require('./routes/dependencyRoutes');
+ const aiRoutes = require('./routes/aiRoutes');
++const riskRoutes = require('./routes/riskRoutes');
+ 
+ dotenv.config();
+ connectDB();
+@@ -47,6 +48,7 @@ app.use('/api/dependencies', dependencyRoutes);
+ app.use('/api/ai', aiRoutes);
+ app.use('/api', analyticsRoutes);
+ app.use('/api', timeEntryRoutes);
++app.use('/api', riskRoutes);
+ 
+ const PORT = process.env.PORT || 5000;
+ 
+diff --git a/server/controllers/riskController.js b/server/controllers/riskController.js
+new file mode 100644
+index 0000000..cd5a807
+--- /dev/null
++++ b/server/controllers/riskController.js
+@@ -0,0 +1,188 @@
++const mongoose = require('mongoose');
++const Task = require('../models/Task');
++const TaskDependency = require('../models/TaskDependency');
++const TaskEstimate = require('../models/TaskEstimate');
++const { CycleError } = require('../services/schedule');
++const { computePertAnalysis, pertEstimate, EstimateError } = require('../services/pert');
++const { logActivity } = require('./activityLogController');
++
++const DAY_MS = 24 * 60 * 60 * 1000;
++
++function toNumber(v) {
++    if (v === '' || v === null || v === undefined) return NaN;
++    return Number(v);
++}
++
++function optionalNumber(v) {
++    if (v === '' || v === null || v === undefined) return undefined;
++    const n = Number(v);
++    return Number.isFinite(n) ? n : undefined;
++}
++
++/** Parses 'YYYY-MM-DD' (or any ISO date) to a UTC-midnight Date, or null. */
++function parseDay(value) {
++    if (!value || typeof value !== 'string') return null;
++    const d = new Date(value);
++    if (Number.isNaN(d.getTime())) return null;
++    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
++}
++
++function todayUtc() {
++    const now = new Date();
++    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
++}
++
++/**
++ * GET /api/boards/:id/risk
++ * Query: iterations, seed, distribution (pert|triangular), bins,
++ *        startDate (YYYY-MM-DD, default today), deadline (YYYY-MM-DD) or deadlineDays
++ */
++exports.getRisk = async (req, res) => {
++    const { id: boardId } = req.params;
++    const { iterations, seed, distribution, bins, startDate, deadline, deadlineDays } = req.query;
++
++    try {
++        const start = parseDay(startDate) || todayUtc();
++
++        let deadlineInDays = optionalNumber(deadlineDays);
++        if (deadlineInDays === undefined && deadline) {
++            const deadlineDate = parseDay(deadline);
++            if (!deadlineDate) {
++                return res.status(400).json({ message: 'deadline must be a valid date (YYYY-MM-DD)' });
++            }
++            deadlineInDays = Math.round((deadlineDate.getTime() - start.getTime()) / DAY_MS);
++        }
++
++        const [tasks, dependencies, estimates] = await Promise.all([
++            Task.find({ board: boardId }),
++            TaskDependency.find({ board: boardId }),
++            TaskEstimate.find({ board: boardId })
++        ]);
++
++        const analysis = computePertAnalysis(tasks, dependencies, estimates, {
++            iterations: optionalNumber(iterations),
++            seed: optionalNumber(seed),
++            bins: optionalNumber(bins),
++            distribution: distribution || undefined,
++            startDate: start,
++            deadlineDays: deadlineInDays
++        });
++
++        res.json(analysis);
++    } catch (err) {
++        if (err instanceof CycleError) {
++            return res.status(409).json({ message: err.message, cycle: err.chain });
++        }
++        if (err instanceof EstimateError) {
++            return res.status(400).json({ message: err.message, taskId: err.taskId });
++        }
++        console.error('Error computing PERT / Monte Carlo risk:', err);
++        res.status(500).json({ message: err.message });
++    }
++};
++
++/** GET /api/boards/:id/estimates */
++exports.getEstimates = async (req, res) => {
++    const { id: boardId } = req.params;
++
++    try {
++        const estimates = await TaskEstimate.find({ board: boardId });
++        res.json(estimates.map((e) => ({
++            _id: e._id,
++            task: e.task,
++            optimistic: e.optimistic,
++            mostLikely: e.mostLikely,
++            pessimistic: e.pessimistic,
++            ...pertEstimate(e.optimistic, e.mostLikely, e.pessimistic)
++        })));
++    } catch (err) {
++        console.error('Error fetching estimates:', err);
++        res.status(500).json({ message: err.message });
++    }
++};
++
++/** PUT /api/boards/:id/estimates/:taskId   body: { optimistic, mostLikely, pessimistic } */
++exports.upsertEstimate = async (req, res) => {
++    const { id: boardId, taskId } = req.params;
++    const userId = req.user._id;
++
++    if (!mongoose.isValidObjectId(taskId)) {
++        return res.status(400).json({ message: 'Invalid task id' });
++    }
++
++    const optimistic = toNumber(req.body.optimistic);
++    const mostLikely = toNumber(req.body.mostLikely);
++    const pessimistic = toNumber(req.body.pessimistic);
++
++    let computed;
++    try {
++        computed = pertEstimate(optimistic, mostLikely, pessimistic);
++    } catch (err) {
++        if (err instanceof EstimateError) {
++            return res.status(400).json({ message: err.message });
++        }
++        throw err;
++    }
++
++    try {
++        const task = await Task.findById(taskId);
++        if (!task || task.board.toString() !== boardId.toString()) {
++            return res.status(404).json({ message: 'Task not found on this board' });
++        }
++
++        const estimate = await TaskEstimate.findOneAndUpdate(
++            { task: taskId },
++            { board: boardId, optimistic, mostLikely, pessimistic, updatedBy: userId },
++            { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
++        );
++
++        await logActivity({
++            boardId,
++            userId,
++            action: `set three-point estimate for "${task.title}"`,
++            taskId: task._id
++        });
++
++        res.json({
++            _id: estimate._id,
++            task: estimate.task,
++            optimistic,
++            mostLikely,
++            pessimistic,
++            ...computed
++        });
++    } catch (err) {
++        console.error('Error saving estimate:', err);
++        res.status(500).json({ message: err.message });
++    }
++};
++
++/** DELETE /api/boards/:id/estimates/:taskId */
++exports.deleteEstimate = async (req, res) => {
++    const { id: boardId, taskId } = req.params;
++    const userId = req.user._id;
++
++    if (!mongoose.isValidObjectId(taskId)) {
++        return res.status(400).json({ message: 'Invalid task id' });
++    }
++
++    try {
++        const removed = await TaskEstimate.findOneAndDelete({ task: taskId, board: boardId });
++        if (!removed) {
++            return res.status(404).json({ message: 'No estimate found for this task' });
++        }
++
++        const task = await Task.findById(taskId);
++        await logActivity({
++            boardId,
++            userId,
++            action: `removed three-point estimate${task ? ` for "${task.title}"` : ''}`,
++            taskId: task ? task._id : undefined
++        });
++
++        res.json({ message: 'Estimate removed successfully' });
++    } catch (err) {
++        console.error('Error deleting estimate:', err);
++        res.status(500).json({ message: err.message });
++    }
++};
+diff --git a/server/models/TaskEstimate.js b/server/models/TaskEstimate.js
+new file mode 100644
+index 0000000..36cb868
+--- /dev/null
++++ b/server/models/TaskEstimate.js
+@@ -0,0 +1,19 @@
++const mongoose = require('mongoose');
++
++/**
++ * Three-point (PERT) duration estimate for a task, in days.
++ * Kept in its own collection so the Task schema and the existing CPM inputs are untouched.
++ * A task without a TaskEstimate keeps its ordinary durationDays.
++ */
++const taskEstimateSchema = new mongoose.Schema({
++    board: { type: mongoose.Schema.Types.ObjectId, ref: 'Board', required: true },
++    task: { type: mongoose.Schema.Types.ObjectId, ref: 'Task', required: true, unique: true },
++    optimistic: { type: Number, required: true, min: 0 },
++    mostLikely: { type: Number, required: true, min: 0 },
++    pessimistic: { type: Number, required: true, min: 0 },
++    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
++}, { timestamps: true });
++
++taskEstimateSchema.index({ board: 1 });
++
++module.exports = mongoose.model('TaskEstimate', taskEstimateSchema);
+diff --git a/server/routes/riskRoutes.js b/server/routes/riskRoutes.js
+new file mode 100644
+index 0000000..6bbcf44
+--- /dev/null
++++ b/server/routes/riskRoutes.js
+@@ -0,0 +1,18 @@
++const express = require('express');
++const router = express.Router();
++const protect = require('../middlewares/authMiddleware');
++const requireRole = require('../middlewares/requireRole');
++const {
++    getRisk,
++    getEstimates,
++    upsertEstimate,
++    deleteEstimate
++} = require('../controllers/riskController');
++
++// Mounted at /api (see app.js)
++router.get('/boards/:id/risk', protect, requireRole('viewer'), getRisk);
++router.get('/boards/:id/estimates', protect, requireRole('viewer'), getEstimates);
++router.put('/boards/:id/estimates/:taskId', protect, requireRole('member'), upsertEstimate);
++router.delete('/boards/:id/estimates/:taskId', protect, requireRole('member'), deleteEstimate);
++
++module.exports = router;
+diff --git a/server/services/pert.js b/server/services/pert.js
+new file mode 100644
+index 0000000..6cec7a0
+--- /dev/null
++++ b/server/services/pert.js
+@@ -0,0 +1,609 @@
++/**
++ * pert.js - Three-point (PERT) estimation and Monte Carlo schedule-risk engine.
++ *
++ * Pure and deterministic: zero database access, seeded RNG. It sits ON TOP of the
++ * existing CPM engine (services/schedule.js) and never modifies it:
++ *
++ *   1. Each task may carry an optimistic (a), most likely (m) and pessimistic (b)
++ *      duration. Expected duration E = (a + 4m + b) / 6, variance = ((b - a) / 6)^2.
++ *   2. Analytical PERT: run CPM on the expected durations, sum the variances along the
++ *      critical chain, and use a normal approximation for confidence dates.
++ *   3. Monte Carlo: sample every task duration from a Beta-PERT (or triangular)
++ *      distribution, re-run forward/backward passes N times, and report the empirical
++ *      distribution of the project duration plus a criticality index per task.
++ *
++ * Tasks without a three-point estimate keep their ordinary CPM duration (a = m = b),
++ * so enabling this feature never changes the numbers of tasks nobody has estimated.
++ */
++
++const { computeSchedule } = require('./schedule');
++
++const EPS = 1e-9;
++const DEFAULT_ITERATIONS = 10000;
++const MIN_ITERATIONS = 100;
++const MAX_ITERATIONS = 50000;
++const DEFAULT_SEED = 1337;
++const DEFAULT_BINS = 30;
++const DEFAULT_LEVELS = [0.5, 0.8, 0.9, 0.95, 0.99];
++const PERCENTILE_POINTS = [0.1, 0.25, 0.5, 0.75, 0.8, 0.85, 0.9, 0.95, 0.99];
++const DISTRIBUTIONS = ['pert', 'triangular'];
++
++class EstimateError extends Error {
++    constructor(message, taskId) {
++        super(message);
++        this.name = 'EstimateError';
++        this.taskId = taskId;
++    }
++}
++
++// ---------------------------------------------------------------------------
++// Small helpers
++// ---------------------------------------------------------------------------
++
++function toId(x) {
++    if (x === null || x === undefined) return '';
++    if (typeof x === 'string') return x;
++    if (typeof x === 'object') {
++        if (x._id !== undefined && x._id !== null) return String(x._id);
++        if (typeof x.id === 'string') return x.id;
++    }
++    return String(x);
++}
++
++function round(x, digits = 4) {
++    if (typeof x !== 'number' || !Number.isFinite(x)) return x;
++    const f = 10 ** digits;
++    return Math.round(x * f) / f;
++}
++
++/** start date + ceil(days) calendar days, as YYYY-MM-DD (UTC). */
++function addDays(startDate, days) {
++    if (!startDate) return null;
++    const d = new Date(startDate);
++    if (Number.isNaN(d.getTime())) return null;
++    const out = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + Math.ceil(days - EPS)));
++    return out.toISOString().slice(0, 10);
++}
++
++// ---------------------------------------------------------------------------
++// Three-point estimate
++// ---------------------------------------------------------------------------
++
++function assertThreePoint(a, m, b) {
++    const parts = [['optimistic', a], ['mostLikely', m], ['pessimistic', b]];
++    for (const [name, v] of parts) {
++        if (typeof v !== 'number' || !Number.isFinite(v)) {
++            throw new EstimateError(`${name} must be a finite number`);
++        }
++        if (v < 0) {
++            throw new EstimateError(`${name} cannot be negative`);
++        }
++    }
++    if (!(a <= m && m <= b)) {
++        throw new EstimateError('Estimates must satisfy optimistic <= mostLikely <= pessimistic');
++    }
++}
++
++/**
++ * Classic PERT three-point estimate.
++ * @returns {{ expected: number, variance: number, stdDev: number }}
++ */
++function pertEstimate(a, m, b) {
++    assertThreePoint(a, m, b);
++    const stdDev = (b - a) / 6;
++    return {
++        expected: (a + 4 * m + b) / 6,
++        variance: stdDev * stdDev,
++        stdDev
++    };
++}
++
++// ---------------------------------------------------------------------------
++// Normal distribution
++// ---------------------------------------------------------------------------
++
++// Abramowitz & Stegun 7.1.26, absolute error < 1.5e-7
++function erf(x) {
++    const sign = x < 0 ? -1 : 1;
++    const ax = Math.abs(x);
++    const t = 1 / (1 + 0.3275911 * ax);
++    const poly = ((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592;
++    return sign * (1 - poly * t * Math.exp(-ax * ax));
++}
++
++function normalCdf(z) {
++    return 0.5 * (1 + erf(z / Math.SQRT2));
++}
++
++/** Inverse standard normal CDF by bisection (plenty fast for a handful of calls). */
++function normalInv(p) {
++    if (p <= 0) return -Infinity;
++    if (p >= 1) return Infinity;
++    let lo = -10;
++    let hi = 10;
++    for (let i = 0; i < 100; i++) {
++        const mid = (lo + hi) / 2;
++        if (normalCdf(mid) < p) lo = mid;
++        else hi = mid;
++    }
++    return (lo + hi) / 2;
++}
++
++// ---------------------------------------------------------------------------
++// Seeded sampling (same PRNG family the repo's demo seeder uses)
++// ---------------------------------------------------------------------------
++
++function mulberry32(seed) {
++    let a = seed >>> 0;
++    return function next() {
++        a = (a + 0x6D2B79F5) | 0;
++        let t = Math.imul(a ^ (a >>> 15), 1 | a);
++        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
++        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
++    };
++}
++
++function gaussian(rng) {
++    let u = 0;
++    while (u === 0) u = rng();
++    const v = rng();
++    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
++}
++
++/** Marsaglia-Tsang gamma sampler, valid for shape k >= 1 (Beta-PERT shapes are in [1, 5]). */
++function sampleGamma(k, rng) {
++    const d = k - 1 / 3;
++    const c = 1 / Math.sqrt(9 * d);
++    for (;;) {
++        let x;
++        let v;
++        do {
++            x = gaussian(rng);
++            v = 1 + c * x;
++        } while (v <= 0);
++        v = v * v * v;
++        const u = rng();
++        if (u < 1 - 0.0331 * x * x * x * x) return d * v;
++        if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v;
++    }
++}
++
++/**
++ * Returns a function rng -> duration for one task.
++ * 'pert'       Beta-PERT (lambda = 4); its mean is exactly (a + 4m + b) / 6.
++ * 'triangular' Triangular(a, m, b) via inverse CDF.
++ */
++function makeSampler(a, m, b, distribution) {
++    if (b - a < EPS) return null; // deterministic task
++
++    if (distribution === 'triangular') {
++        const range = b - a;
++        const fc = (m - a) / range;
++        return (rng) => {
++            const u = rng();
++            return u < fc
++                ? a + Math.sqrt(u * range * (m - a))
++                : b - Math.sqrt((1 - u) * range * (b - m));
++        };
++    }
++
++    const alpha = 1 + (4 * (m - a)) / (b - a);
++    const beta = 1 + (4 * (b - m)) / (b - a);
++    return (rng) => {
++        const g1 = sampleGamma(alpha, rng);
++        const g2 = sampleGamma(beta, rng);
++        return a + (b - a) * (g1 / (g1 + g2));
++    };
++}
++
++// ---------------------------------------------------------------------------
++// Model construction (shared by the analytical and Monte Carlo parts)
++// ---------------------------------------------------------------------------
++
++function buildModel(tasks, dependencies, estimates) {
++    // Plain, string-id copies. Passing normalised strings into computeSchedule keeps this
++    // module independent of how Mongoose ObjectIds stringify.
++    const normTasks = (tasks || []).map((t) => ({
++        id: toId(t),
++        title: t.title,
++        durationDays: t.durationDays,
++        duration: t.duration,
++        estimateHours: t.estimateHours
++    }));
++    const normDeps = (dependencies || []).map((d) => ({
++        predecessor: toId(d.predecessor),
++        successor: toId(d.successor)
++    }));
++
++    // Deterministic CPM exactly as the app already computes it (throws CycleError on cycles).
++    const baseline = computeSchedule(normTasks, normDeps);
++    const baseDuration = new Map(baseline.tasks.map((t) => [t.id, t.duration]));
++    const knownIds = new Set(baseDuration.keys());
++
++    // Per-task stats
++    const stats = new Map();
++    for (const id of knownIds) {
++        const d = baseDuration.get(id);
++        stats.set(id, {
++            hasEstimate: false,
++            optimistic: d,
++            mostLikely: d,
++            pessimistic: d,
++            expected: d,
++            variance: 0,
++            stdDev: 0
++        });
++    }
++
++    for (const e of estimates || []) {
++        const id = toId(e.task !== undefined ? e.task : e.taskId);
++        if (!knownIds.has(id)) continue; // orphaned estimate (task deleted / other board)
++        const a = e.optimistic;
++        const m = e.mostLikely;
++        const b = e.pessimistic;
++        let est;
++        try {
++            est = pertEstimate(a, m, b);
++        } catch (err) {
++            if (err instanceof EstimateError) {
++                throw new EstimateError(`Invalid estimate for task ${id}: ${err.message}`, id);
++            }
++            throw err;
++        }
++        stats.set(id, {
++            hasEstimate: true,
++            optimistic: a,
++            mostLikely: m,
++            pessimistic: b,
++            expected: est.expected,
++            variance: est.variance,
++            stdDev: est.stdDev
++        });
++    }
++
++    // CPM on expected durations
++    const expectedTasks = normTasks.map((t) => {
++        const s = stats.get(t.id);
++        return s && s.hasEstimate ? { id: t.id, title: t.title, durationDays: s.expected } : t;
++    });
++    const pertSchedule = computeSchedule(expectedTasks, normDeps);
++
++    // Graph (same rules computeSchedule applies: known ids only, no self-loops, de-duplicated)
++    const preds = new Map();
++    const succs = new Map();
++    for (const id of knownIds) {
++        preds.set(id, new Set());
++        succs.set(id, new Set());
++    }
++    for (const d of normDeps) {
++        if (knownIds.has(d.predecessor) && knownIds.has(d.successor) && d.predecessor !== d.successor) {
++            succs.get(d.predecessor).add(d.successor);
++            preds.get(d.successor).add(d.predecessor);
++        }
++    }
++
++    return { baseline, pertSchedule, stats, preds, succs };
++}
++
++// ---------------------------------------------------------------------------
++// Analytical PERT
++// ---------------------------------------------------------------------------
++
++function analyzePert(model, startDate, deadlineDays) {
++    const { pertSchedule, stats, preds } = model;
++    const T = pertSchedule.projectDuration;
++
++    // Recompute criticality with a tolerance: expected durations are fractional, and the
++    // exact `float === 0` comparison is not safe once floating-point sums are involved.
++    const rows = pertSchedule.tasks.map((t) => {
++        const s = stats.get(t.id);
++        const float = Math.max(0, t.ls - t.es);
++        return {
++            id: t.id,
++            title: t.title,
++            hasEstimate: s.hasEstimate,
++            optimistic: s.optimistic,
++            mostLikely: s.mostLikely,
++            pessimistic: s.pessimistic,
++            expected: s.expected,
++            variance: s.variance,
++            stdDev: s.stdDev,
++            es: t.es,
++            ef: t.ef,
++            ls: t.ls,
++            lf: t.lf,
++            float,
++            isCritical: float < EPS
++        };
++    });
++    const byId = new Map(rows.map((r) => [r.id, r]));
++
++    // Max-variance critical chain via DP in topological order (rows are topologically ordered).
++    const chainVar = new Map();
++    const prev = new Map();
++    for (const r of rows) {
++        if (!r.isCritical) continue;
++        let best = 0;
++        let bestPred = null;
++        for (const p of preds.get(r.id)) {
++            const pr = byId.get(p);
++            if (pr && pr.isCritical && Math.abs(pr.ef - r.es) < EPS) {
++                const cv = chainVar.get(p);
++                if (bestPred === null || cv > best) {
++                    best = cv;
++                    bestPred = p;
++                }
++            }
++        }
++        chainVar.set(r.id, r.variance + (bestPred === null ? 0 : best));
++        prev.set(r.id, bestPred);
++    }
++
++    let endId = null;
++    let endVar = -1;
++    for (const r of rows) {
++        if (r.isCritical && Math.abs(r.ef - T) < EPS) {
++            const cv = chainVar.get(r.id);
++            if (cv >= endVar) {
++                endVar = cv;
++                endId = r.id;
++            }
++        }
++    }
++
++    const criticalChain = [];
++    for (let cur = endId; cur !== null && cur !== undefined; cur = prev.get(cur)) {
++        criticalChain.unshift(cur);
++    }
++
++    const variance = Math.max(0, endVar);
++    const stdDev = Math.sqrt(variance);
++
++    const confidence = DEFAULT_LEVELS.map((level) => {
++        const days = T + normalInv(level) * stdDev;
++        return { level, days: round(days), date: addDays(startDate, days) };
++    });
++
++    let deadlineProbability = null;
++    if (typeof deadlineDays === 'number' && Number.isFinite(deadlineDays)) {
++        deadlineProbability = stdDev < EPS
++            ? (T <= deadlineDays + EPS ? 1 : 0)
++            : normalCdf((deadlineDays - T) / stdDev);
++    }
++
++    return {
++        projectDuration: round(T),
++        criticalPath: rows.filter((r) => r.isCritical).map((r) => r.id),
++        criticalChain,
++        variance: round(variance),
++        stdDev: round(stdDev),
++        confidence,
++        deadlineProbability: deadlineProbability === null ? null : round(deadlineProbability),
++        tasks: rows.map((r) => ({
++            ...r,
++            optimistic: round(r.optimistic),
++            mostLikely: round(r.mostLikely),
++            pessimistic: round(r.pessimistic),
++            expected: round(r.expected),
++            variance: round(r.variance),
++            stdDev: round(r.stdDev),
++            es: round(r.es),
++            ef: round(r.ef),
++            ls: round(r.ls),
++            lf: round(r.lf),
++            float: round(r.float)
++        }))
++    };
++}
++
++// ---------------------------------------------------------------------------
++// Monte Carlo
++// ---------------------------------------------------------------------------
++
++function percentileOf(sorted, p) {
++    const n = sorted.length;
++    return sorted[Math.min(n - 1, Math.max(0, Math.ceil(p * n) - 1))];
++}
++
++/** Number of values <= x in an ascending Float64Array. */
++function countAtOrBelow(sorted, x) {
++    let lo = 0;
++    let hi = sorted.length;
++    while (lo < hi) {
++        const mid = (lo + hi) >>> 1;
++        if (sorted[mid] <= x + EPS) lo = mid + 1;
++        else hi = mid;
++    }
++    return lo;
++}
++
++function buildHistogram(sorted, bins) {
++    const n = sorted.length;
++    const min = sorted[0];
++    const max = sorted[n - 1];
++    if (max - min < EPS) {
++        return [{ from: round(min), to: round(max), count: n, probability: 1, cumulative: 1 }];
++    }
++    const width = (max - min) / bins;
++    const counts = new Array(bins).fill(0);
++    for (let i = 0; i < n; i++) {
++        counts[Math.min(bins - 1, Math.floor((sorted[i] - min) / width))]++;
++    }
++    let running = 0;
++    return counts.map((count, i) => {
++        running += count;
++        return {
++            from: round(min + i * width),
++            to: round(min + (i + 1) * width),
++            count,
++            probability: round(count / n, 6),
++            cumulative: round(running / n, 6)
++        };
++    });
++}
++
++function runMonteCarlo(model, options, startDate, deadlineDays, baselineDuration) {
++    const { pertSchedule, stats, preds, succs } = model;
++    const order = pertSchedule.tasks.map((t) => t.id); // topological order
++    const n = order.length;
++    const index = new Map(order.map((id, i) => [id, i]));
++
++    const predIdx = order.map((id) => Array.from(preds.get(id)).map((p) => index.get(p)));
++    const succIdx = order.map((id) => Array.from(succs.get(id)).map((s) => index.get(s)));
++    const samplers = order.map((id) => {
++        const s = stats.get(id);
++        return makeSampler(s.optimistic, s.mostLikely, s.pessimistic, options.distribution);
++    });
++    const fixed = order.map((id) => stats.get(id).expected);
++
++    const rng = mulberry32(options.seed);
++    const iterations = options.iterations;
++
++    const dur = new Float64Array(n);
++    const es = new Float64Array(n);
++    const ef = new Float64Array(n);
++    const ls = new Float64Array(n);
++    const totals = new Float64Array(iterations);
++    const critCount = new Float64Array(n);
++
++    for (let it = 0; it < iterations; it++) {
++        // forward pass
++        let total = 0;
++        for (let i = 0; i < n; i++) {
++            dur[i] = samplers[i] ? samplers[i](rng) : fixed[i];
++            let start = 0;
++            const ps = predIdx[i];
++            for (let k = 0; k < ps.length; k++) {
++                const f = ef[ps[k]];
++                if (f > start) start = f;
++            }
++            es[i] = start;
++            ef[i] = start + dur[i];
++            if (ef[i] > total) total = ef[i];
++        }
++        totals[it] = total;
++
++        // backward pass -> criticality
++        for (let i = n - 1; i >= 0; i--) {
++            let lf = total;
++            const ss = succIdx[i];
++            for (let k = 0; k < ss.length; k++) {
++                const l = ls[ss[k]];
++                if (l < lf) lf = l;
++            }
++            ls[i] = lf - dur[i];
++            if (ls[i] - es[i] < 1e-7) critCount[i]++;
++        }
++    }
++
++    const sorted = Float64Array.from(totals).sort();
++    let sum = 0;
++    for (let i = 0; i < iterations; i++) sum += totals[i];
++    const mean = sum / iterations;
++    let sq = 0;
++    for (let i = 0; i < iterations; i++) sq += (totals[i] - mean) ** 2;
++    const stdDev = Math.sqrt(sq / iterations);
++
++    const percentiles = {};
++    for (const p of PERCENTILE_POINTS) {
++        percentiles[`p${Math.round(p * 100)}`] = round(percentileOf(sorted, p));
++    }
++
++    const confidence = DEFAULT_LEVELS.map((level) => {
++        const days = percentileOf(sorted, level);
++        return { level, days: round(days), date: addDays(startDate, days) };
++    });
++
++    const criticalityIndex = {};
++    order.forEach((id, i) => {
++        criticalityIndex[id] = round(critCount[i] / iterations);
++    });
++
++    let deadlineProbability = null;
++    if (typeof deadlineDays === 'number' && Number.isFinite(deadlineDays)) {
++        deadlineProbability = round(countAtOrBelow(sorted, deadlineDays) / iterations);
++    }
++
++    return {
++        iterations,
++        seed: options.seed,
++        distribution: options.distribution,
++        mean: round(mean),
++        stdDev: round(stdDev),
++        min: round(sorted[0]),
++        max: round(sorted[iterations - 1]),
++        percentiles,
++        confidence,
++        // How likely the deterministic CPM duration (as currently scheduled) is to hold.
++        probabilityOfBaseline: round(countAtOrBelow(sorted, baselineDuration) / iterations),
++        deadlineProbability,
++        histogram: buildHistogram(sorted, options.bins),
++        criticalityIndex
++    };
++}
++
++// ---------------------------------------------------------------------------
++// Public entry point
++// ---------------------------------------------------------------------------
++
++function resolveOptions(options = {}) {
++    let iterations = Number.isFinite(options.iterations) ? Math.floor(options.iterations) : DEFAULT_ITERATIONS;
++    iterations = Math.min(MAX_ITERATIONS, Math.max(MIN_ITERATIONS, iterations));
++
++    const distribution = options.distribution === undefined ? 'pert' : options.distribution;
++    if (!DISTRIBUTIONS.includes(distribution)) {
++        throw new EstimateError(`distribution must be one of: ${DISTRIBUTIONS.join(', ')}`);
++    }
++
++    const seed = Number.isFinite(options.seed) ? Math.floor(options.seed) : DEFAULT_SEED;
++    const bins = Number.isFinite(options.bins) ? Math.min(100, Math.max(5, Math.floor(options.bins))) : DEFAULT_BINS;
++
++    return { iterations, distribution, seed, bins };
++}
++
++/**
++ * @param {Array} tasks         Task docs/objects ({ _id|id, title, durationDays, ... })
++ * @param {Array} dependencies  [{ predecessor, successor }]
++ * @param {Array} estimates     [{ task, optimistic, mostLikely, pessimistic }]
++ * @param {Object} [options]    { iterations, seed, distribution: 'pert'|'triangular', bins,
++ *                                startDate, deadlineDays }
++ * @throws CycleError (from schedule.js) on cyclic dependencies, EstimateError on bad input
++ */
++function computePertAnalysis(tasks = [], dependencies = [], estimates = [], options = {}) {
++    const opts = resolveOptions(options);
++    const startDate = options.startDate || null;
++    const deadlineDays = typeof options.deadlineDays === 'number' ? options.deadlineDays : null;
++
++    const model = buildModel(tasks, dependencies, estimates);
++    const meta = {
++        tasksTotal: model.baseline.tasks.length,
++        tasksWithEstimates: Array.from(model.stats.values()).filter((s) => s.hasEstimate).length,
++        startDate: startDate ? addDays(startDate, 0) : null,
++        deadlineDays
++    };
++
++    const baseline = {
++        projectDuration: round(model.baseline.projectDuration),
++        criticalPath: model.baseline.criticalPath
++    };
++
++    if (model.baseline.tasks.length === 0) {
++        return { meta, baseline, pert: null, monteCarlo: null };
++    }
++
++    const pert = analyzePert(model, startDate, deadlineDays);
++    const monteCarlo = runMonteCarlo(model, opts, startDate, deadlineDays, model.baseline.projectDuration);
++
++    return { meta, baseline, pert, monteCarlo };
++}
++
++module.exports = {
++    computePertAnalysis,
++    pertEstimate,
++    EstimateError,
++    normalCdf,
++    normalInv,
++    mulberry32,
++    addDays,
++    MAX_ITERATIONS
++};
+diff --git a/server/test/pert.test.js b/server/test/pert.test.js
+new file mode 100644
+index 0000000..6b3ad2e
+--- /dev/null
++++ b/server/test/pert.test.js
+@@ -0,0 +1,299 @@
++const test = require('node:test');
++const assert = require('node:assert/strict');
++const { computeSchedule, CycleError } = require('../services/schedule');
++const {
++    computePertAnalysis,
++    pertEstimate,
++    EstimateError,
++    normalCdf,
++    normalInv
++} = require('../services/pert');
++
++function assertClose(actual, expected, tolerance, message) {
++    assert.ok(
++        Math.abs(actual - expected) <= tolerance,
++        `${message || 'value'}: expected ${expected} ± ${tolerance}, got ${actual}`
++    );
++}
++
++// Lecture network from schedule.test.js: A -> B -> D -> F and A -> C -> E -> F.
++// Deterministic durations (used by plain CPM): A4 B5 C5 D6 E3 F0 => critical path A,B,D,F = 15.
++const tasks = [
++    { id: 'A', durationDays: 4 },
++    { id: 'B', durationDays: 5 },
++    { id: 'C', durationDays: 5 },
++    { id: 'D', durationDays: 6 },
++    { id: 'E', durationDays: 3 },
++    { id: 'F', durationDays: 0 }
++];
++const dependencies = [
++    { predecessor: 'A', successor: 'B' },
++    { predecessor: 'B', successor: 'D' },
++    { predecessor: 'D', successor: 'F' },
++    { predecessor: 'A', successor: 'C' },
++    { predecessor: 'C', successor: 'E' },
++    { predecessor: 'E', successor: 'F' }
++];
++// Three-point estimates on the critical tasks B and D only.
++//   B: a3 m5 b7  -> E = (3+20+7)/6  = 5, sd = 4/6,  var = 0.4444
++//   D: a4 m6 b14 -> E = (4+24+14)/6 = 7, sd = 10/6, var = 2.7778
++// => expected project duration 4 + 5 + 7 = 16, variance 3.2222, sigma 1.79505
++const estimates = [
++    { task: 'B', optimistic: 3, mostLikely: 5, pessimistic: 7 },
++    { task: 'D', optimistic: 4, mostLikely: 6, pessimistic: 14 }
++];
++
++test('PERT: three-point formula E = (a + 4m + b) / 6 and sigma = (b - a) / 6', () => {
++    const r = pertEstimate(2, 5, 14);
++    assert.equal(r.expected, 6);
++    assert.equal(r.stdDev, 2);
++    assert.equal(r.variance, 4);
++
++    const flat = pertEstimate(3, 3, 3);
++    assert.equal(flat.expected, 3);
++    assert.equal(flat.variance, 0);
++});
++
++test('PERT: invalid three-point input is rejected', () => {
++    assert.throws(() => pertEstimate(5, 3, 8), EstimateError, 'a > m');
++    assert.throws(() => pertEstimate(1, 9, 8), EstimateError, 'm > b');
++    assert.throws(() => pertEstimate(-1, 2, 3), EstimateError, 'negative');
++    assert.throws(() => pertEstimate(NaN, 2, 3), EstimateError, 'NaN');
++    assert.throws(() => pertEstimate('1', 2, 3), EstimateError, 'string');
++});
++
++test('PERT: normal helpers match known values', () => {
++    assertClose(normalCdf(0), 0.5, 1e-9);
++    assertClose(normalCdf(1.96), 0.975, 1e-3);
++    assertClose(normalInv(0.95), 1.6449, 1e-3);
++    assertClose(normalInv(0.5), 0, 1e-9);
++});
++
++test('PERT analytical: expected duration, critical chain, variance and confidence dates', () => {
++    const r = computePertAnalysis(tasks, dependencies, estimates, {
++        iterations: 1000,
++        startDate: '2026-01-01',
++        deadlineDays: 18
++    });
++
++    assert.equal(r.pert.projectDuration, 16);
++    assert.deepEqual(r.pert.criticalChain, ['A', 'B', 'D', 'F']);
++    assertClose(r.pert.variance, 3.2222, 1e-3, 'variance');
++    assertClose(r.pert.stdDev, 1.7951, 1e-3, 'stdDev');
++
++    const byId = new Map(r.pert.tasks.map((t) => [t.id, t]));
++    assert.equal(byId.get('B').expected, 5);
++    assert.equal(byId.get('D').expected, 7);
++    assert.equal(byId.get('B').hasEstimate, true);
++    assert.equal(byId.get('C').hasEstimate, false);
++    // C and E are off the critical path: LS(E)=13, LS(C)=8 => float 4
++    assert.equal(byId.get('C').float, 4);
++    assert.equal(byId.get('E').float, 4);
++    assert.equal(byId.get('C').isCritical, false);
++
++    // 50% = expected duration; 95% = 16 + 1.6449 * 1.79505 = 18.953
++    const c50 = r.pert.confidence.find((c) => c.level === 0.5);
++    const c95 = r.pert.confidence.find((c) => c.level === 0.95);
++    assertClose(c50.days, 16, 1e-3);
++    assertClose(c95.days, 18.953, 0.01);
++    assert.equal(c50.date, '2026-01-17'); // 2026-01-01 + 16 days
++    assert.equal(c95.date, '2026-01-20'); // + ceil(18.95) = 19 days
++
++    // P(finish <= 18) = Phi(2 / 1.79505) = 0.867
++    assertClose(r.pert.deadlineProbability, 0.867, 0.005, 'normal deadline probability');
++});
++
++test('PERT: leaves the deterministic CPM baseline untouched', () => {
++    const r = computePertAnalysis(tasks, dependencies, estimates, { iterations: 200 });
++    const direct = computeSchedule(tasks, dependencies);
++
++    assert.equal(r.baseline.projectDuration, direct.projectDuration);
++    assert.equal(r.baseline.projectDuration, 15);
++    assert.deepEqual(r.baseline.criticalPath, direct.criticalPath);
++    assert.deepEqual(r.baseline.criticalPath, ['A', 'B', 'D', 'F']);
++});
++
++test('Monte Carlo: deterministic for a given seed, different across seeds', () => {
++    const opts = { iterations: 2000, seed: 7 };
++    const one = computePertAnalysis(tasks, dependencies, estimates, opts);
++    const two = computePertAnalysis(tasks, dependencies, estimates, opts);
++    const other = computePertAnalysis(tasks, dependencies, estimates, { ...opts, seed: 8 });
++
++    assert.deepEqual(one.monteCarlo, two.monteCarlo);
++    assert.notEqual(one.monteCarlo.mean, other.monteCarlo.mean);
++});
++
++test('Monte Carlo: Beta-PERT mean converges to the PERT expected duration', () => {
++    const r = computePertAnalysis(tasks, dependencies, estimates, { iterations: 20000, seed: 42 });
++    const mc = r.monteCarlo;
++
++    assertClose(mc.mean, 16, 0.1, 'MC mean vs PERT expected duration');
++
++    // Classic PERT sigma = (b - a) / 6 is an approximation. A Beta-PERT (lambda = 4) variable has
++    // exact variance (mean - a)(b - mean) / 7:
++    //   B: (5-3)(7-5)/7 = 0.5714    D: (7-4)(14-7)/7 = 3.0    => sqrt(3.5714) = 1.8898
++    // so the simulated sigma is expected to sit a few percent above the analytical 1.795.
++    assertClose(mc.stdDev, Math.sqrt(0.5714285714 + 3), 0.06, 'MC stdDev vs exact Beta-PERT sigma');
++    assert.ok(mc.stdDev > r.pert.stdDev, 'MC sigma should exceed the (b-a)/6 approximation here');
++
++    // Hard bounds from the inputs: best case 4+3+4 = 11, worst case 4+7+14 = 25.
++    assert.ok(mc.min >= 11 && mc.max <= 25, `range ${mc.min}..${mc.max}`);
++
++    // Percentiles must be monotonic and bracket the mean sensibly.
++    const p = mc.percentiles;
++    assert.ok(p.p10 <= p.p25 && p.p25 <= p.p50 && p.p50 <= p.p75 && p.p75 <= p.p90 && p.p90 <= p.p95 && p.p95 <= p.p99);
++    // The distribution of D is right-skewed, so the empirical P95 sits near (not exactly on)
++    // the normal-approximation P95 of 18.95.
++    assertClose(p.p95, 18.95, 0.75, 'MC P95 vs analytical P95');
++
++    // Because the estimates are right-skewed, the old deterministic date (15) is unlikely.
++    assert.ok(mc.probabilityOfBaseline < 0.5, `P(<= CPM 15d) = ${mc.probabilityOfBaseline}`);
++});
++
++test('Monte Carlo: histogram is a proper probability distribution', () => {
++    const { monteCarlo } = computePertAnalysis(tasks, dependencies, estimates, { iterations: 5000, bins: 25 });
++    const h = monteCarlo.histogram;
++
++    assert.equal(h.length, 25);
++    assert.equal(h.reduce((s, b) => s + b.count, 0), 5000);
++    assertClose(h.reduce((s, b) => s + b.probability, 0), 1, 1e-3, 'probability mass');
++    assert.equal(h[h.length - 1].cumulative, 1);
++    for (let i = 1; i < h.length; i++) {
++        assert.ok(h[i].cumulative >= h[i - 1].cumulative);
++    }
++});
++
++test('Monte Carlo: criticality index identifies the driving path', () => {
++    const { monteCarlo } = computePertAnalysis(tasks, dependencies, estimates, { iterations: 5000 });
++    const ci = monteCarlo.criticalityIndex;
++
++    for (const id of ['A', 'B', 'D', 'F']) {
++        assert.ok(ci[id] > 0.99, `${id} should be almost always critical, got ${ci[id]}`);
++    }
++    // The C -> E branch (8 days) is far behind the 16 day chain; it should essentially never drive.
++    assert.ok(ci.C < 0.02 && ci.E < 0.02, `C=${ci.C} E=${ci.E}`);
++});
++
++test('Monte Carlo: two identical parallel branches share criticality ~50/50', () => {
++    const t = [{ id: 'S', durationDays: 1 }, { id: 'X', durationDays: 5 }, { id: 'Y', durationDays: 5 }, { id: 'Z', durationDays: 1 }];
++    const d = [
++        { predecessor: 'S', successor: 'X' },
++        { predecessor: 'S', successor: 'Y' },
++        { predecessor: 'X', successor: 'Z' },
++        { predecessor: 'Y', successor: 'Z' }
++    ];
++    const e = [
++        { task: 'X', optimistic: 3, mostLikely: 5, pessimistic: 9 },
++        { task: 'Y', optimistic: 3, mostLikely: 5, pessimistic: 9 }
++    ];
++    const { monteCarlo } = computePertAnalysis(t, d, e, { iterations: 10000, seed: 3 });
++    const ci = monteCarlo.criticalityIndex;
++
++    assertClose(ci.X, 0.5, 0.05, 'X criticality');
++    assertClose(ci.Y, 0.5, 0.05, 'Y criticality');
++    assertClose(ci.X + ci.Y, 1, 0.001, 'exactly one branch drives each iteration');
++    assert.equal(ci.S, 1);
++    assert.equal(ci.Z, 1);
++    // Merge bias: the mean of max(X, Y) exceeds the mean of either branch alone (7 + ... = 5.33 + 2).
++    assert.ok(monteCarlo.mean > 7.33 + 0.1, `merge bias expected, mean=${monteCarlo.mean}`);
++});
++
++test('Monte Carlo: tasks without estimates stay deterministic (zero variance)', () => {
++    const r = computePertAnalysis(tasks, dependencies, [], { iterations: 500 });
++
++    assert.equal(r.meta.tasksWithEstimates, 0);
++    assert.equal(r.pert.variance, 0);
++    assert.equal(r.pert.projectDuration, 15);
++    assert.equal(r.monteCarlo.stdDev, 0);
++    assert.equal(r.monteCarlo.min, 15);
++    assert.equal(r.monteCarlo.max, 15);
++    assert.equal(r.monteCarlo.probabilityOfBaseline, 1);
++    assert.equal(r.monteCarlo.histogram.length, 1);
++});
++
++test('Monte Carlo: triangular distribution has mean (a + m + b) / 3', () => {
++    // B: (3+5+7)/3 = 5, D: (4+6+14)/3 = 8, plus A = 4  => 17
++    const r = computePertAnalysis(tasks, dependencies, estimates, {
++        iterations: 20000,
++        seed: 11,
++        distribution: 'triangular'
++    });
++    assert.equal(r.monteCarlo.distribution, 'triangular');
++    assertClose(r.monteCarlo.mean, 17, 0.1, 'triangular mean');
++});
++
++test('Monte Carlo: deadline probability is monotonic and consistent with percentiles', () => {
++    const early = computePertAnalysis(tasks, dependencies, estimates, { iterations: 5000, deadlineDays: 12 });
++    const late = computePertAnalysis(tasks, dependencies, estimates, { iterations: 5000, deadlineDays: 30 });
++    assert.ok(early.monteCarlo.deadlineProbability < 0.05);
++    assert.equal(late.monteCarlo.deadlineProbability, 1);
++
++    const r = computePertAnalysis(tasks, dependencies, estimates, { iterations: 10000 });
++    const p90 = r.monteCarlo.percentiles.p90;
++    const check = computePertAnalysis(tasks, dependencies, estimates, { iterations: 10000, deadlineDays: p90 });
++    assert.ok(check.monteCarlo.deadlineProbability >= 0.9, `P(<= p90) = ${check.monteCarlo.deadlineProbability}`);
++});
++
++test('PERT: cycles still raise CycleError', () => {
++    const cyc = [
++        { predecessor: 'A', successor: 'B' },
++        { predecessor: 'B', successor: 'A' }
++    ];
++    assert.throws(
++        () => computePertAnalysis([{ id: 'A', durationDays: 1 }, { id: 'B', durationDays: 1 }], cyc, []),
++        (err) => err instanceof CycleError
++    );
++});
++
++test('PERT: bad estimates name the offending task; orphan estimates are ignored', () => {
++    assert.throws(
++        () => computePertAnalysis(tasks, dependencies, [{ task: 'B', optimistic: 9, mostLikely: 5, pessimistic: 7 }]),
++        (err) => err instanceof EstimateError && err.taskId === 'B'
++    );
++
++    const r = computePertAnalysis(
++        tasks,
++        dependencies,
++        [...estimates, { task: 'deleted-task', optimistic: 1, mostLikely: 2, pessimistic: 3 }],
++        { iterations: 200 }
++    );
++    assert.equal(r.meta.tasksWithEstimates, 2);
++});
++
++test('PERT: rejects unknown distribution names', () => {
++    assert.throws(
++        () => computePertAnalysis(tasks, dependencies, estimates, { distribution: 'gaussian' }),
++        EstimateError
++    );
++});
++
++test('PERT: empty board and input immutability', () => {
++    const empty = computePertAnalysis([], [], []);
++    assert.equal(empty.pert, null);
++    assert.equal(empty.monteCarlo, null);
++    assert.equal(empty.baseline.projectDuration, 0);
++
++    const before = JSON.stringify({ tasks, dependencies, estimates });
++    computePertAnalysis(tasks, dependencies, estimates, { iterations: 300 });
++    assert.equal(JSON.stringify({ tasks, dependencies, estimates }), before);
++});
++
++test('PERT: accepts Mongoose-style ObjectId ids (id is a Buffer, _id returns itself)', () => {
++    class FakeObjectId {
++        constructor(hex) {
++            this.hex = hex;
++            this.id = Buffer.from(hex); // bson 6 exposes the raw bytes as `id`
++        }
++        get _id() { return this; }
++        toString() { return this.hex; }
++    }
++    const oid = (h) => new FakeObjectId(h);
++
++    const mongoTasks = tasks.map((t) => ({ _id: oid(t.id), durationDays: t.durationDays, title: `Task ${t.id}` }));
++    const mongoDeps = dependencies.map((d) => ({ predecessor: oid(d.predecessor), successor: oid(d.successor) }));
++    const mongoEstimates = estimates.map((e) => ({ ...e, task: oid(e.task) }));
++
++    const r = computePertAnalysis(mongoTasks, mongoDeps, mongoEstimates, { iterations: 500 });
++    assert.equal(r.pert.projectDuration, 16);
++    assert.deepEqual(r.pert.criticalChain, ['A', 'B', 'D', 'F']);
++});
