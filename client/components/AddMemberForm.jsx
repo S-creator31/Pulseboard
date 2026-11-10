@@ -55,13 +55,13 @@ const AddMemberForm = ({ boardId, token, members, currentUserIsAdmin }) => {
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             className="border rounded-lg px-3 py-2 text-sm flex-1 min-w-[200px] outline-none"
-                            style={{ borderColor: "var(--color-line)", color: "var(--color-ink)" }}
+                            style={{ borderColor: "var(--color-line)", background: "var(--color-surface-2)", color: "var(--color-ink)" }}
                         />
                         <select
                             value={role}
                             onChange={(e) => setRole(e.target.value)}
-                            className="border rounded-lg px-3 py-2 text-sm outline-none"
-                            style={{ borderColor: "var(--color-line)", color: "var(--color-ink)" }}
+                            className="themed-select border rounded-lg px-3 py-2 text-sm outline-none"
+                            style={{ borderColor: "var(--color-line)", background: "var(--color-surface-2)", color: "var(--color-ink)" }}
                         >
                             <option value="member">Member</option>
                             <option value="admin">Admin</option>
