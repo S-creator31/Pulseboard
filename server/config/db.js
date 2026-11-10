@@ -4,13 +4,19 @@ let mongodInstance = null;
 
 const connectDB = async () => {
     try {
+        const hasRealUri = Boolean(process.env.MONGO_URI);
         let uri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/pulseboard';
         try {
-            await mongoose.connect(uri, { serverSelectionTimeoutMS: 2000 });
-            console.log('MongoDB connected to:', uri);
+            // A real (Atlas) URI needs longer than a local mongod to answer.
+            await mongoose.connect(uri, { serverSelectionTimeoutMS: hasRealUri ? 20000 : 2000 });
+            // Never log credentials.
+            console.log('MongoDB connected to:', uri.replace(/\/\/[^@/]*@/, '//***@'));
             return;
         } catch (localErr) {
-            console.log('Direct MongoDB connection failed, attempting in-memory fallback...');
+            console.log('Direct MongoDB connection failed:', localErr.message);
+            // If a real URI was configured, surface that error instead of trying the in-memory fallback.
+            if (hasRealUri) throw localErr;
+            console.log('Attempting in-memory fallback...');
         }
 
         try {
