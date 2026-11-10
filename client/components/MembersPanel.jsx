@@ -16,7 +16,7 @@ export default function MembersPanel({
   const [newMemberRole, setNewMemberRole] = useState('member');
   const [submitting, setSubmitting] = useState(false);
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const token = typeof window !== 'undefined' ? sessionStorage.getItem('token') : null;
   const members = board?.members || [];
   const owner = board?.owner;
 

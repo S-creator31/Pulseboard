@@ -50,7 +50,7 @@ export default function TaskDetailModal({
   const [addingDependency, setAddingDependency] = useState(false);
   const [cycleError, setCycleError] = useState(null);
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const token = typeof window !== 'undefined' ? sessionStorage.getItem('token') : null;
 
   useEffect(() => {
     if (!task) return;

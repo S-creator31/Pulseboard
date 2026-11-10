@@ -24,7 +24,7 @@ function requireRole(minimumRole = 'member') {
                 return res.status(401).json({ message: 'Authentication required' });
             }
 
-            let boardId = req.params?.boardId || req.params?.id || req.body?.boardId || req.query?.boardId;
+            let boardId = req.params?.boardId || req.body?.boardId || req.query?.boardId;
 
             // If taskId is provided, look up parent task's board
             if (!boardId && req.params?.taskId) {
@@ -32,10 +32,15 @@ function requireRole(minimumRole = 'member') {
                 if (task) boardId = task.board;
             }
 
-            // If listId is provided, look up parent list's board
-            if (!boardId && (req.params?.listId || req.params?.id)) {
-                const list = await List.findById(req.params.listId || req.params.id);
+            // Resolve a list before treating a generic `id` as a board ID.
+            if (!boardId && req.params?.listId) {
+                const list = await List.findById(req.params.listId);
                 if (list) boardId = list.board;
+            }
+
+            // Routes such as DELETE /boards/:id use `id` for the board itself.
+            if (!boardId && req.params?.id) {
+                boardId = req.params.id;
             }
 
             if (!boardId) {

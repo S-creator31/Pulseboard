@@ -17,6 +17,7 @@
     "react": "^19.0.0",
     "react-dnd": "^16.0.1",
     "react-dnd-html5-backend": "^16.0.1",
+    "socket.io-client": "^4.8.4",
     "react-dom": "^19.0.0",
     "recharts": "^3.10.1",
     "sonner": "^2.0.8",

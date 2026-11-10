@@ -30,8 +30,13 @@ exports.createBoard = async (req, res) => {
 
 exports.getBoards = async (req, res) => {
     try {
-        
-        const boards = await Board.find({ owner: req.user.id });
+        const userId = req.user._id;
+        const boards = await Board.find({
+            $or: [
+                { owner: userId },
+                { 'members.user': userId }
+            ]
+        }).sort({ createdAt: -1 });
 
         res.json(boards);
 
@@ -77,11 +82,10 @@ exports.deleteBoard = async (req, res) => {
         }
 
         const userId = req.user.id.toString();
-        const isOwner = board.owner._id.toString() === userId;
-        const isAdmin = req.user.role === 'admin';
+        const isOwner = board.owner.toString() === userId;
 
-        if(!isOwner && !isAdmin){
-            return res.status(403).json({message: 'Only admin or board owner can delete'});
+        if(!isOwner){
+            return res.status(403).json({message: 'Only the board owner can delete'});
         }
 
         await board.deleteOne();
@@ -134,6 +138,10 @@ exports.updateMemberRole = async (req, res) => {
     const {boardId, memberId} = req.params;
     const {newRole} = req.body;
 
+    if (!['admin', 'member', 'viewer'].includes(newRole)) {
+        return res.status(400).json({ message: 'newRole must be admin, member, or viewer' });
+    }
+
     try{
         const board = await Board.findById(boardId);
         if(!board) return res.status(404).json({message: 'Board not found'});
@@ -154,6 +162,11 @@ exports.updateMemberRole = async (req, res) => {
 
         member.role = newRole;
         await board.save();
+
+        req.app.get('io')?.to(`board:${board._id}`).emit('board:member-role-updated', {
+            memberId,
+            role: newRole
+        });
 
         res.status(200).json({message: 'Role updated successfully'});
     }catch(err){

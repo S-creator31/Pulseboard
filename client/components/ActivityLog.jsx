@@ -10,7 +10,7 @@ const ActivityLog = ({ boardId }) => {
             try {
                 const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/activity-logs/${boardId}`, {
                     headers: {
-                        Authorization: `Bearer ${localStorage.getItem('token')}`
+                        Authorization: `Bearer ${sessionStorage.getItem('token')}`
                     }
                 });
                 const data = await res.json();
