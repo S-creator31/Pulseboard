@@ -11,6 +11,7 @@ export default function ShortcutsModal({ isOpen, onClose }) {
     { key: 'G B', description: 'Go to Kanban Board' },
     { key: 'G A', description: 'Go to Analytics & Health' },
     { key: 'G T', description: 'Go to Timeline & PERT' },
+    { key: 'G R', description: 'Go to Risk Analysis' },
     { key: 'D', description: 'Toggle density (Compact / Comfortable)' },
     { key: 'Esc', description: 'Close any active modal or drawer' }
   ];

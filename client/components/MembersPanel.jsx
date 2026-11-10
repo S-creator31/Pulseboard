@@ -152,8 +152,8 @@ export default function MembersPanel({
                     <select
                       value={role}
                       onChange={(e) => handleChangeRole(u._id, e.target.value)}
-                      className="px-2 py-1 rounded-lg border text-xs font-medium outline-none capitalize cursor-pointer"
-                      style={{ borderColor: "var(--color-line)", background: "var(--color-surface)" }}
+                      className="themed-select px-2 py-1 rounded-lg border text-xs font-medium outline-none capitalize cursor-pointer"
+                      style={{ borderColor: "var(--color-line)", background: "var(--color-surface-2)", color: "var(--color-ink)" }}
                     >
                       <option value="admin">Admin</option>
                       <option value="member">Member</option>
@@ -184,14 +184,14 @@ export default function MembersPanel({
                 placeholder="User email address…"
                 value={newMemberEmail}
                 onChange={(e) => setNewMemberEmail(e.target.value)}
-                className="flex-1 px-3 py-1.5 text-xs rounded-xl border bg-white outline-none"
-                style={{ borderColor: "var(--color-line)" }}
+                className="flex-1 px-3 py-1.5 text-xs rounded-xl border outline-none"
+                style={{ borderColor: "var(--color-line)", background: "var(--color-surface)", color: "var(--color-ink)" }}
               />
               <select
                 value={newMemberRole}
                 onChange={(e) => setNewMemberRole(e.target.value)}
-                className="px-2.5 py-1.5 text-xs rounded-xl border bg-white outline-none"
-                style={{ borderColor: "var(--color-line)" }}
+                className="themed-select px-2.5 py-1.5 text-xs rounded-xl border outline-none"
+                style={{ borderColor: "var(--color-line)", background: "var(--color-surface)", color: "var(--color-ink)" }}
               >
                 <option value="member">Member</option>
                 <option value="admin">Admin</option>

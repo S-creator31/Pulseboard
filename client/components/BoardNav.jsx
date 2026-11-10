@@ -1,8 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import PulseLogo from '@/components/PulseLogo';
 import PulseAvatar from '@/components/PulseAvatar';
 import ThemeToggle from '@/components/ThemeToggle';
@@ -23,8 +23,54 @@ export default function BoardNav({
   rightActions
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const boardId = board?._id || pathname?.split('/')[2];
   const c = boardColor(board?.color);
+
+  useEffect(() => {
+    let navigationPending = false;
+    let navigationTimeout;
+
+    const handleKeyDown = (e) => {
+      const target = e.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      ) return;
+
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+
+      if (navigationPending) {
+        navigationPending = false;
+        clearTimeout(navigationTimeout);
+        const routes = {
+          b: `/board/${boardId}`,
+          a: `/board/${boardId}/analytics`,
+          t: `/board/${boardId}/timeline`,
+          r: `/board/${boardId}/risk`
+        };
+        const route = routes[e.key.toLowerCase()];
+        if (route && boardId) {
+          e.preventDefault();
+          router.push(route);
+          return;
+        }
+      }
+
+      if (e.key.toLowerCase() === 'g' && boardId) {
+        navigationPending = true;
+        navigationTimeout = setTimeout(() => {
+          navigationPending = false;
+        }, 1000);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      clearTimeout(navigationTimeout);
+    };
+  }, [boardId, router]);
 
   // First 4 members + overflow count
   const displayMembers = members.slice(0, 4);
