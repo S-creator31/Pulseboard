@@ -130,15 +130,38 @@ export default function BoardDetailsPage() {
   // Keyboard shortcut listener (? for shortcuts, ⌘K for command palette)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.key === 'Escape') {
+        setShowActivityDrawer(false);
+        setShowMembersPanel(false);
+        setShowCommandPalette(false);
+        setShowShortcuts(false);
+        setSelectedTask(null);
+        return;
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowCommandPalette(prev => !prev);
+        return;
+      }
+
+      const target = e.target;
+      if (
+        target instanceof HTMLElement &&
+        ['INPUT', 'TEXTAREA'].includes(target.tagName)
+      ) return;
+
       if (e.key === '?') {
         setShowShortcuts(prev => !prev);
       } else if (e.key === 'd' || e.key === 'D') {
         handleToggleDensity();
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, [density]);
 
   const userId = user?.id || user?._id;
@@ -486,8 +509,8 @@ export default function BoardDetailsPage() {
             <select
               value={priorityFilter}
               onChange={(e) => updateFilters({ priority: e.target.value })}
-              className="px-2 py-1 rounded-lg border outline-none bg-white text-xs cursor-pointer ml-1"
-              style={{ borderColor: "var(--color-line)" }}
+              className="themed-select px-2 py-1 rounded-lg border outline-none text-xs cursor-pointer ml-1"
+              style={{ borderColor: "var(--color-line)", background: "var(--color-surface-2)", color: "var(--color-ink)" }}
             >
               <option value="">All Priorities</option>
               <option value="urgent">Urgent</option>
@@ -563,8 +586,8 @@ export default function BoardDetailsPage() {
                   <select
                     value={assignedTo[list._id] || ''}
                     onChange={(e) => setAssignedTo(prev => ({ ...prev, [list._id]: e.target.value }))}
-                    className="flex-1 text-[11px] px-2 py-1 rounded-lg border outline-none bg-white cursor-pointer"
-                    style={{ borderColor: "var(--color-line)" }}
+                    className="themed-select flex-1 text-[11px] px-2 py-1 rounded-lg border outline-none cursor-pointer"
+                    style={{ borderColor: "var(--color-line)", background: "var(--color-surface-2)", color: "var(--color-ink)" }}
                   >
                     <option value="">Assign to…</option>
                     {(board?.members || []).map((m, idx) => {
