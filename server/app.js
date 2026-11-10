@@ -9,6 +9,7 @@ const sprintRoutes = require('./routes/sprintRoutes');
 const timeEntryRoutes = require('./routes/timeEntryRoutes');
 const dependencyRoutes = require('./routes/dependencyRoutes');
 const aiRoutes = require('./routes/aiRoutes');
+const riskRoutes = require('./routes/riskRoutes');
 
 dotenv.config();
 connectDB();
@@ -47,6 +48,7 @@ app.use('/api/dependencies', dependencyRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api', analyticsRoutes);
 app.use('/api', timeEntryRoutes);
+app.use('/api', riskRoutes);
 
 const PORT = process.env.PORT || 5000;
 

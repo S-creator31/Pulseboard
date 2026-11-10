@@ -85,6 +85,16 @@ export default function BoardNav({
               >
                 Timeline & PERT
               </Link>
+              <Link
+                href={`/board/${boardId}/risk`}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${activeTab === 'risk' ? 'shadow-sm' : ''}`}
+                style={{
+                  background: activeTab === 'risk' ? 'var(--color-surface)' : 'transparent',
+                  color: activeTab === 'risk' ? 'var(--color-brand)' : 'var(--color-ink-muted)'
+                }}
+              >
+                Risk
+              </Link>
             </nav>
           )}
         </div>
