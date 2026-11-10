@@ -18,7 +18,7 @@ export default function CreateBoardPage() {
         setError('');
         setSubmitting(true);
 
-        const token = localStorage.getItem('token');
+        const token = sessionStorage.getItem('token');
         if (!token) {
             setError('You must login');
             setSubmitting(false);

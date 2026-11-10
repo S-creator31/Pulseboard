@@ -28,7 +28,7 @@ export default function ActivityLogDrawer({
     else setLoading(true);
 
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      const token = typeof window !== 'undefined' ? sessionStorage.getItem('token') : null;
       const params = new URLSearchParams();
       if (cursor) params.set('cursor', cursor);
       if (actorFilter) params.set('actor', actorFilter);

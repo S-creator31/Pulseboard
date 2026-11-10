@@ -17,7 +17,7 @@ export default function Dashboard() {
     const [loaded, setLoaded] = useState(false);
 
     useEffect(() => {
-        // Wait for AuthContext to finish reading localStorage before
+        // Wait for AuthContext to finish restoring this tab's sessionStorage before
         // deciding to redirect — checking only `user` here used to bounce
         // straight back to /login on every hard refresh of /dashboard,
         // because this effect ran before the auth state had loaded.
@@ -29,7 +29,7 @@ export default function Dashboard() {
         }
 
         const fetchBoards = async () => {
-            const token = localStorage.getItem('token');
+            const token = sessionStorage.getItem('token');
 
             try {
                 const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/boards`, {

@@ -17,7 +17,9 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if(typeof window !== 'undefined'){
 
-      const storedUser = localStorage.getItem('user');
+      // localStorage is shared by every tab for this origin. Keeping auth in
+      // sessionStorage isolates simultaneous accounts in separate tabs/windows.
+      const storedUser = sessionStorage.getItem('user');
 
       if(storedUser) {
         try{
@@ -25,13 +27,16 @@ export const AuthProvider = ({ children }) => {
           
           setUser(userData);
         }catch(err){
-          console.error('Error parsing user from localstorage')
-          localStorage.removeItem('user');
-          localStorage.removeItem('token');
+          console.error('Error parsing user from session storage')
+          sessionStorage.removeItem('user');
+          sessionStorage.removeItem('token');
           setUser(null)
 
         }
       }
+      // Remove credentials left by older builds; they are shared across tabs.
+      localStorage.removeItem('user');
+      localStorage.removeItem('token');
       setLoading(false);
     }
   }, []);
@@ -62,9 +67,9 @@ export const AuthProvider = ({ children }) => {
         _id: userId
       };
 
-      localStorage.setItem('user', JSON.stringify(userObj));
+      sessionStorage.setItem('user', JSON.stringify(userObj));
 
-      localStorage.setItem('token', data.token);
+      sessionStorage.setItem('token', data.token);
       // setUser({ token: data.token, id: userId });
       setUser(userObj)
 
@@ -76,8 +81,8 @@ export const AuthProvider = ({ children }) => {
 
 
   const logout = () => {
-    localStorage.removeItem('user');
-    localStorage.removeItem('token');
+    sessionStorage.removeItem('user');
+    sessionStorage.removeItem('token');
     setUser(null);
     router.push('/login');
   };
