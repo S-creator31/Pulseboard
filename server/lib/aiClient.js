@@ -1,8 +1,8 @@
 const { Groq } = require('groq-sdk');
 const { z } = require('zod');
 
-const MODEL_NAME = 'llama-3.3-70b-versatile';
-const TIMEOUT_MS = 10000;
+const MODEL_NAME = 'openai/gpt-oss-20b';
+const TIMEOUT_MS = 30000;
 
 class AiFormatError extends Error {
     constructor(message, raw) {
@@ -14,6 +14,7 @@ class AiFormatError extends Error {
 
 let groqClient = null;
 function getClient() {
+    // Set GROQ_API_KEY in server/.env; never put the key in client-side environment variables.
     if (!groqClient && process.env.GROQ_API_KEY) {
         groqClient = new Groq({
             apiKey: process.env.GROQ_API_KEY,
@@ -27,7 +28,7 @@ function getClient() {
  * Parses and validates JSON reply using Zod schema.
  * On syntax error, attempts one repair call before throwing AiFormatError.
  */
-async function parseJsonReply(rawContent, zodSchema) {
+async function parseJsonReply(rawContent, zodSchema, contextMessages = []) {
     let parsed;
     try {
         parsed = typeof rawContent === 'string' ? JSON.parse(rawContent) : rawContent;
@@ -37,7 +38,7 @@ async function parseJsonReply(rawContent, zodSchema) {
         if (client) {
             try {
                 const repairCompletion = await client.chat.completions.create({
-                    model: 'llama-3.1-8b-instant',
+                    model: MODEL_NAME,
                     messages: [
                         {
                             role: 'system',
@@ -57,9 +58,40 @@ async function parseJsonReply(rawContent, zodSchema) {
         }
     }
 
-    const validation = zodSchema.safeParse(parsed);
+    let validation = zodSchema.safeParse(parsed);
     if (!validation.success) {
-        throw new AiFormatError(`Schema validation failed: ${validation.error.message}`, parsed);
+        const client = getClient();
+        if (!client) {
+            throw new AiFormatError(`Schema validation failed: ${validation.error.message}`, parsed);
+        }
+
+        try {
+            const repairCompletion = await client.chat.completions.create({
+                model: MODEL_NAME,
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'Repair the assistant JSON so it satisfies the required output schema. Preserve the task-specific content, include every required field, and return ONLY valid JSON.'
+                    },
+                    ...contextMessages,
+                    { role: 'assistant', content: JSON.stringify(parsed) },
+                    {
+                        role: 'user',
+                        content: `The JSON failed schema validation. Correct these issues and return the complete corrected JSON:\n${validation.error.message}`
+                    }
+                ],
+                response_format: { type: 'json_object' },
+                temperature: 0.1
+            });
+            parsed = JSON.parse(repairCompletion.choices[0]?.message?.content || '{}');
+        } catch (repairErr) {
+            throw new AiFormatError('Failed to repair JSON schema validation errors', parsed);
+        }
+
+        validation = zodSchema.safeParse(parsed);
+        if (!validation.success) {
+            throw new AiFormatError(`Schema validation failed after repair: ${validation.error.message}`, parsed);
+        }
     }
     return validation.data;
 }
@@ -88,7 +120,7 @@ async function generateJson({ messages, temperature = 0.2, schema }) {
 
             const content = completion.choices[0]?.message?.content;
             if (!content) throw new Error('Empty AI response');
-            return await parseJsonReply(content, schema);
+            return await parseJsonReply(content, schema, messages);
         } catch (err) {
             if (attempts >= 2 || err instanceof AiFormatError) {
                 throw err;

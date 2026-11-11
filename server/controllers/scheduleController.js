@@ -14,7 +14,7 @@ exports.getSchedule = async (req, res) => {
         ]);
 
         const schedule = computeSchedule(tasks, dependencies);
-        res.json(schedule);
+        res.json({ ...schedule, dependencies });
     } catch (err) {
         console.error('Error computing schedule:', err);
         if (err instanceof CycleError) {

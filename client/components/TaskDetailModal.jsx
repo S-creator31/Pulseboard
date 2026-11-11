@@ -261,6 +261,8 @@ export default function TaskDetailModal({
 
   const handleTriggerBreakdown = async () => {
     setBreakdownLoading(true);
+    setBreakdownResult(null);
+    setSelectedSubtasks({});
     setActiveTab('breakdown');
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ai/tasks/${task._id}/breakdown`, {
@@ -269,7 +271,7 @@ export default function TaskDetailModal({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({}) // Empty body constraint
+        body: JSON.stringify({ title, description })
       });
 
       if (res.ok) {
@@ -308,15 +310,24 @@ export default function TaskDetailModal({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ subtasks: accepted })
+        body: JSON.stringify({
+          subtasks: accepted,
+          predecessorIds: [
+            ...dependencies.predecessors.map(predecessor => predecessor.task._id),
+            ...(selectedPredecessor ? [selectedPredecessor] : [])
+          ]
+        })
       });
 
       if (res.ok) {
-        toast.success(`Added ${accepted.length} subtasks to board!`);
+        toast.success(`Replaced task with ${accepted.length} subtasks!`);
         setBreakdownResult(null);
         setActiveTab('details');
         if (onTaskUpdated) onTaskUpdated();
         onClose();
+      } else {
+        const err = await res.json();
+        toast.error(err.message || 'Error creating subtasks');
       }
     } catch (e) {
       toast.error('Error creating subtasks');
@@ -964,7 +975,7 @@ export default function TaskDetailModal({
                     Ready to break down this work package?
                   </h4>
                   <p className="text-xs max-w-sm mx-auto" style={{ color: "var(--color-ink-muted)" }}>
-                    Our AI assistant reads this task's scope and generates 3-7 manageable subtasks completable in under a day.
+                    AI uses this task's title and description to create 3-7 specific, manageable subtasks. Add a clear outcome or requirements to get a more useful breakdown.
                   </p>
                   <button
                     type="button"

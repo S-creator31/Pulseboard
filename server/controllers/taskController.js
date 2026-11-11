@@ -2,8 +2,40 @@ const Task = require('../models/Task');
 const Board = require('../models/Board');
 const List = require('../models/List');
 const User = require('../models/User');
+const TaskDependency = require('../models/TaskDependency');
 const TaskStatusHistory = require('../models/TaskStatusHistory');
+const { computeSchedule, CycleError } = require('../services/schedule');
 const { logActivity } = require('./activityLogController');
+
+const buildSubtaskDependencyEdges = (parentTaskId, subtasks, dependencies) => {
+    const parentId = parentTaskId.toString();
+    const edges = [];
+    const seen = new Set();
+
+    for (const dependency of dependencies) {
+        const predecessorId = (dependency.predecessor?._id || dependency.predecessor).toString();
+        const successorId = (dependency.successor?._id || dependency.successor).toString();
+
+        for (const subtask of subtasks) {
+            const edge = predecessorId === parentId
+                ? { board: dependency.board, predecessor: subtask._id, successor: dependency.successor }
+                : successorId === parentId
+                    ? { board: dependency.board, predecessor: dependency.predecessor, successor: subtask._id }
+                    : null;
+
+            if (!edge) continue;
+            const key = `${edge.predecessor.toString()}:${edge.successor.toString()}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                edges.push(edge);
+            }
+        }
+    }
+
+    return edges;
+};
+
+exports.buildSubtaskDependencyEdges = buildSubtaskDependencyEdges;
 
 exports.createTask = async (req, res) => {
     const {
@@ -284,16 +316,60 @@ exports.updateTask = async (req, res) => {
 
 exports.createSubtasksBulk = async (req, res) => {
     const { taskId } = req.params;
-    const { subtasks } = req.body;
+    const { subtasks, predecessorIds = [] } = req.body;
     const userId = req.user._id;
 
     if (!Array.isArray(subtasks) || subtasks.length === 0) {
         return res.status(400).json({ message: 'subtasks array is required' });
     }
+    if (!Array.isArray(predecessorIds) ||
+        predecessorIds.some(id => typeof id !== 'string' || !/^[a-f\d]{24}$/i.test(id))) {
+        return res.status(400).json({ message: 'predecessorIds must be an array of task IDs' });
+    }
 
     try {
         const parentTask = await Task.findById(taskId);
         if (!parentTask) return res.status(404).json({ message: 'Parent task not found' });
+
+        const board = await Board.findById(parentTask.board);
+        if (!board) return res.status(404).json({ message: 'Board not found' });
+        const isMember = board.owner.toString() === userId.toString() ||
+            board.members.some(member => member.user.toString() === userId.toString());
+        if (!isMember) return res.status(403).json({ message: 'You are not a member of this board' });
+
+        const dependencies = await TaskDependency.find({
+            board: parentTask.board,
+            $or: [{ predecessor: parentTask._id }, { successor: parentTask._id }]
+        });
+        const uniquePredecessorIds = [...new Set(predecessorIds)]
+            .filter(id => id !== parentTask._id.toString());
+        const selectedPredecessors = uniquePredecessorIds.length > 0
+            ? await Task.find({ _id: { $in: uniquePredecessorIds }, board: parentTask.board })
+            : [];
+        if (selectedPredecessors.length !== uniquePredecessorIds.length) {
+            return res.status(400).json({ message: 'Each predecessor must be a task on the same board' });
+        }
+        if (selectedPredecessors.length > 0) {
+            const [boardTasks, boardDependencies] = await Promise.all([
+                Task.find({ board: parentTask.board }),
+                TaskDependency.find({ board: parentTask.board })
+            ]);
+            const proposedDependencies = [
+                ...boardDependencies,
+                ...selectedPredecessors.map(predecessor => ({
+                    predecessor: predecessor._id,
+                    successor: parentTask._id
+                }))
+            ];
+            try {
+                computeSchedule(boardTasks, proposedDependencies);
+            } catch (err) {
+                if (err instanceof CycleError) {
+                    return res.status(409).json({ message: err.message, cycle: err.chain });
+                }
+                throw err;
+            }
+        }
 
         const createdTasks = [];
         for (const st of subtasks) {
@@ -320,14 +396,36 @@ exports.createSubtasksBulk = async (req, res) => {
             createdTasks.push(child);
         }
 
+        const dependenciesToReplace = [
+            ...dependencies,
+            ...selectedPredecessors.map(predecessor => ({
+                board: parentTask.board,
+                predecessor: predecessor._id,
+                successor: parentTask._id
+            }))
+        ];
+        const replacementDependencies = buildSubtaskDependencyEdges(
+            parentTask._id,
+            createdTasks,
+            dependenciesToReplace
+        );
+        if (replacementDependencies.length > 0) {
+            await TaskDependency.insertMany(replacementDependencies);
+        }
+        if (dependencies.length > 0) {
+            await TaskDependency.deleteMany({ _id: { $in: dependencies.map(dependency => dependency._id) } });
+        }
+
         await logActivity({
             boardId: parentTask.board,
             userId,
-            action: `added ${createdTasks.length} subtasks to "${parentTask.title}"`,
+            action: `replaced "${parentTask.title}" with ${createdTasks.length} subtasks`,
             taskId: parentTask._id
         });
 
-        res.status(201).json({ message: 'Subtasks added successfully', tasks: createdTasks });
+        await parentTask.deleteOne();
+
+        res.status(201).json({ message: 'Task replaced with subtasks successfully', tasks: createdTasks });
     } catch (err) {
         console.error('Error creating bulk subtasks:', err);
         res.status(500).json({ message: err.message });
@@ -356,6 +454,10 @@ exports.deleteTask = async (req, res) => {
             return res.status(403).json({ message: 'Not authorized to delete this task' });
         }
 
+        await TaskDependency.deleteMany({
+            board: task.board,
+            $or: [{ predecessor: task._id }, { successor: task._id }]
+        });
         await task.deleteOne();
 
         await logActivity({
