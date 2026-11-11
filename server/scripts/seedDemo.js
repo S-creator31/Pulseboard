@@ -84,16 +84,14 @@ async function runSeed() {
     if (existingBoard) {
         const boardId = existingBoard._id;
         console.log(`Clearing existing demo board ${boardId}...`);
+        const demoTaskIds = await Task.distinct('_id', { board: boardId });
+        await TimeEntry.deleteMany({ task: { $in: demoTaskIds } });
         await Task.deleteMany({ board: boardId });
         await List.deleteMany({ board: boardId });
         await Sprint.deleteMany({ board: boardId });
         await TaskDependency.deleteMany({ board: boardId });
         await TaskStatusHistory.deleteMany({ board: boardId });
         await ActivityLog.deleteMany({ board: boardId });
-
-        // Clean up TimeEntries on tasks associated with this board
-        const demoTaskIds = (await Task.find({ board: boardId }).select('_id')).map(t => t._id);
-        await TimeEntry.deleteMany({ task: { $in: demoTaskIds } });
         await Board.deleteOne({ _id: boardId });
     }
 
@@ -181,8 +179,20 @@ async function runSeed() {
         sprints.push(sp);
     }
 
-    // 6. Generate 68 Tasks across Sprints with deterministic features
-    const STORY_POINTS_POOL = [1, 1, 2, 2, 2, 3, 3, 3, 5, 5, 8];
+    // Curated story points keep the demo's sprint totals close to commitment.
+    // Mid-sprint additions are intentionally separate so burndown/velocity are legible.
+    const SPRINT_STORY_POINTS = [
+        [3, 3, 3, 2, 5, 2, 2, 2, 3, 2, 3, 2, 2, 2],
+        [3, 3, 3, 3, 2, 3, 2, 2, 2, 2, 5, 2, 2, 2, 2, 2, 2],
+        [3, 3, 3, 2, 5, 2, 2, 2, 5, 2, 3, 2, 2, 2, 2, 2, 2],
+        [2, 2, 3, 2, 3, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 1, 3, 2, 3]
+    ];
+    const MID_SPRINT_TASK_INDICES = [
+        [12],
+        [14, 16],
+        [14, 16],
+        [17, 18, 19]
+    ];
     const PRIORITIES = ['low', 'medium', 'medium', 'high', 'urgent'];
 
     const taskTitlesSprint1 = [
@@ -291,16 +301,17 @@ async function runSeed() {
 
         for (let tIdx = 0; tIdx < titles.length; tIdx++) {
             const title = titles[tIdx];
-            const points = choice(STORY_POINTS_POOL);
+            const points = SPRINT_STORY_POINTS[sIdx][tIdx];
             const priority = choice(PRIORITIES);
             const estimateHours = points * randomInt(2, 4);
             const assignedUser = users[tIdx % users.length];
 
-            // 10-15% of tasks added mid-sprint
-            const isMidSprint = prng() < 0.15;
-            const taskCreatedDate = isMidSprint
-                ? addDays(sStart, randomInt(3, 7))
-                : addDays(sStart, randomInt(0, 2));
+            const isMidSprint = MID_SPRINT_TASK_INDICES[sIdx].includes(tIdx);
+            const isStaleSprint4Task = !isClosed && staleIndicesInSprint4.includes(tIdx);
+            const createdOffset = isMidSprint
+                ? 3 + (tIdx % 4)
+                : (isStaleSprint4Task ? 0 : (tIdx % 3));
+            const taskCreatedDate = addDays(sStart, createdOffset);
 
             let finalStatus;
             let targetList;
@@ -371,10 +382,11 @@ async function runSeed() {
 
             if (finalStatus === 'in-progress' || finalStatus === 'done') {
                 // Work transitions cluster towards the end of the sprint
-                const isStale = (!isClosed && staleIndicesInSprint4.includes(tIdx));
-                const progDate = isStale
-                    ? addDays(now, -7) // 7 days ago, so stale > 5 days
-                    : addDays(sStart, randomInt(3, 8));
+                const isStale = isStaleSprint4Task;
+                const progressOffset = isStale
+                    ? 1
+                    : Math.max(createdOffset + 1, isClosed ? 3 + (tIdx % 4) : 2 + (tIdx % 3));
+                const progDate = addDays(sStart, progressOffset);
 
                 await TaskStatusHistory.create({
                     task: taskDoc._id,
@@ -399,9 +411,10 @@ async function runSeed() {
 
                 if (finalStatus === 'done') {
                     // Cluster towards the end of sprint
-                    const doneDate = isClosed
-                        ? addDays(sEnd, -randomInt(0, 3))
-                        : addDays(now, -randomInt(1, 4));
+                    const doneOffset = isClosed
+                        ? 14 - (1 + (tIdx % 3))
+                        : Math.min(7, Math.max(progressOffset + 1, 4 + (tIdx % 4)));
+                    const doneDate = addDays(sStart, doneOffset);
 
                     await TaskStatusHistory.create({
                         task: taskDoc._id,
@@ -439,7 +452,7 @@ async function runSeed() {
                             : Math.round((minutesRemaining / (entryCount - e)) * (0.8 + prng() * 0.4));
                         minutesRemaining = Math.max(0, minutesRemaining - entryMinutes);
 
-                        const entryDate = addDays(progDate, Math.min(e + 1, 5));
+                        const entryDate = addDays(progDate, Math.min(e + 1, Math.max(1, doneOffset - progressOffset)));
                         const entryUser = (prng() < 0.8) ? assignedUser : choice(users);
 
                         await TimeEntry.create({
@@ -453,6 +466,81 @@ async function runSeed() {
                     }
                 }
             }
+        }
+    }
+
+    // Seed a small, assigned roadmap across the full six-week capacity horizon.
+    // These are existing To Do backlog items with future start dates, so the
+    // heatmap has meaningful planned hours without distorting sprint velocity
+    // or the selected sprint's burndown.
+    const capacityHoursByMember = [
+        [4, 6, 22, 27, 18, 34],
+        [6, 4, 28, 22, 34, 18],
+        [4, 8, 18, 34, 24, 27],
+        [8, 4, 34, 24, 18, 30],
+        [6, 6, 24, 26, 38, 22]
+    ];
+    const capacityWeekThemes = [
+        'Release readiness',
+        'Sprint handoff',
+        'Accessibility polish',
+        'Performance follow-up',
+        'Documentation and training',
+        'Next-cycle planning'
+    ];
+    const capacityNow = new Date();
+    const mondayOffset = (capacityNow.getDay() + 6) % 7;
+    const capacityWindowStart = new Date(
+        capacityNow.getFullYear(),
+        capacityNow.getMonth(),
+        capacityNow.getDate() - mondayOffset
+    );
+    let totalCapacityTasks = 0;
+
+    for (let weekIndex = 0; weekIndex < capacityHoursByMember[0].length; weekIndex++) {
+        for (let memberIndex = 0; memberIndex < users.length; memberIndex++) {
+            const member = users[memberIndex];
+            const estimateHours = capacityHoursByMember[memberIndex][weekIndex];
+            const createdAt = addDays(now, -35);
+            const taskStart = addDays(capacityWindowStart, weekIndex * 7 + 1);
+            const title = `${capacityWeekThemes[weekIndex]} — ${member.name.split(' ')[0]} work package`;
+            const task = await Task.create({
+                title,
+                description: `Planned ${estimateHours}-hour roadmap allocation for ${member.name}.`,
+                board: board._id,
+                list: listTodo._id,
+                assignedTo: member._id,
+                status: 'todo',
+                storyPoints: Math.max(1, Math.round(estimateHours / 4)),
+                priority: weekIndex < 2 ? 'medium' : 'low',
+                estimateHours,
+                startDate: taskStart,
+                durationDays: 5,
+                order: 100 + weekIndex * users.length + memberIndex,
+                createdAt,
+                updatedAt: createdAt
+            });
+
+            await TaskStatusHistory.create({
+                task: task._id,
+                board: board._id,
+                fromStatus: null,
+                toStatus: 'todo',
+                changedBy: alex._id,
+                changedAt: createdAt
+            });
+            await ActivityLog.create({
+                board: board._id,
+                user: alex._id,
+                action: `created planned capacity task "${title}"`,
+                task: task._id,
+                toStatus: 'todo',
+                createdAt
+            });
+            totalTasks++;
+            totalHistories++;
+            totalLogs++;
+            totalCapacityTasks++;
         }
     }
 
@@ -532,6 +620,7 @@ async function runSeed() {
         'Demo Members': users.length,
         'Sprints': sprints.length,
         'Tasks Created': totalTasks,
+        'Capacity Forecast Tasks': totalCapacityTasks,
         'Status Histories': totalHistories,
         'Time Entries': totalTimeEntries,
         'Activity Logs': totalLogs,

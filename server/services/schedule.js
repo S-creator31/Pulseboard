@@ -11,6 +11,18 @@ class CycleError extends Error {
     }
 }
 
+function toId(value) {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'object') {
+        // Mongoose documents and populated references expose _id. A raw
+        // ObjectId's `id` property is a Buffer, so do not stringify that field.
+        if (value._id !== undefined && value._id !== value) return toId(value._id);
+        if (typeof value.id === 'string') return value.id;
+    }
+    return String(value);
+}
+
 /**
  * Computes CPM schedule for a set of tasks and dependencies.
  * @param {Array} tasks - Array of task objects [{ id, durationDays, ... }]
@@ -25,7 +37,7 @@ function computeSchedule(tasks = [], dependencies = []) {
     // Normalize task id and duration
     const taskMap = new Map();
     for (const t of tasks) {
-        const id = (t.id || t._id || '').toString();
+        const id = toId(t._id !== undefined ? t._id : t.id);
         const duration = typeof t.durationDays === 'number'
             ? t.durationDays
             : typeof t.duration === 'number'
@@ -51,8 +63,8 @@ function computeSchedule(tasks = [], dependencies = []) {
     }
 
     for (const dep of dependencies) {
-        const p = (dep.predecessor?.id || dep.predecessor?._id || dep.predecessor || '').toString();
-        const s = (dep.successor?.id || dep.successor?._id || dep.successor || '').toString();
+        const p = toId(dep.predecessor);
+        const s = toId(dep.successor);
 
         if (taskMap.has(p) && taskMap.has(s) && p !== s) {
             outgoing.get(p).add(s);
