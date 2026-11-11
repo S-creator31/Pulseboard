@@ -264,13 +264,14 @@ export default function BoardDetailsPage() {
   // Identify blocked tasks
   const blockedTaskIds = useMemo(() => {
     const allTasks = lists.flatMap(l => l.tasks || []);
+    const taskIds = new Set(allTasks.map(t => t._id.toString()));
     const doneTaskIds = new Set(allTasks.filter(t => t.status === 'done').map(t => t._id.toString()));
     const blocked = new Set();
 
     dependencies.forEach(dep => {
       const pred = (dep.predecessor?._id || dep.predecessor).toString();
       const succ = (dep.successor?._id || dep.successor).toString();
-      if (!doneTaskIds.has(pred)) {
+      if (taskIds.has(pred) && taskIds.has(succ) && !doneTaskIds.has(pred)) {
         blocked.add(succ);
       }
     });

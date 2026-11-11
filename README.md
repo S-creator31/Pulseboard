@@ -60,7 +60,7 @@ PulseBoard bridges the gap between simple visual Kanban boards and heavyweight e
    - Two-click quick time logger (15m, 30m, 1h, 2h chips + numeric entry and note).
    - Logged session audit history with per-entry removal.
 6. **AI Work Breakdown Assistant**:
-   - Quiet "Break down" assistant producing 3–7 actionable subtasks (each under 8h).
+   - Quiet "Break down" assistant producing 3–7 task-specific, actionable subtasks (each under 8h), grounded in the task title and description.
    - Server-enforced prompt assembly (empty request body constraint).
    - Interactive preview with inline editable titles and estimate chips before acceptance.
 7. **Activity Drawer**:
@@ -117,6 +117,12 @@ npm install
 npm run seed:demo  # Seeds deterministic demo board
 npm start          # Runs backend on http://localhost:5000
 ```
+
+For AI task breakdowns, add your Groq API key to `server/.env`:
+```env
+GROQ_API_KEY=your_groq_api_key_here
+```
+Get a free key from [Groq Console](https://console.groq.com/keys). Keep this key server-side and never add it to the client or commit it.
 
 ### 2. Start Frontend
 ```bash
