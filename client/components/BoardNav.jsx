@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import PulseLogo from '@/components/PulseLogo';
 import PulseAvatar from '@/components/PulseAvatar';
 import ThemeToggle from '@/components/ThemeToggle';
 import { boardColor } from '@/lib/colors';
+import { useAuth } from '@/context/AuthContext';
+import MembersPanel from '@/components/MembersPanel';
 
 export default function BoardNav({
   board,
@@ -24,8 +26,37 @@ export default function BoardNav({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { user } = useAuth();
   const boardId = board?._id || pathname?.split('/')[2];
   const c = boardColor(board?.color);
+  const [showSharedMembersPanel, setShowSharedMembersPanel] = useState(false);
+  const [membersBoard, setMembersBoard] = useState(board);
+
+  useEffect(() => {
+    setMembersBoard(board);
+  }, [board]);
+
+  const currentUserId = user?._id || user?.id;
+  const roleBoard = membersBoard || board;
+  const boardOwnerId = roleBoard?.owner?._id || roleBoard?.owner;
+  const currentUserIsBoardAdmin = String(boardOwnerId || '') === String(currentUserId || '') ||
+    (roleBoard?.members || []).some(member =>
+      String(member.user?._id || member.user || '') === String(currentUserId || '') && member.role === 'admin'
+    );
+
+  const refreshMembersBoard = async () => {
+    const token = user?.token;
+    if (!token || !boardId) return;
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/boards/${boardId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) return;
+      setMembersBoard(await response.json());
+    } catch (error) {
+      console.error('Error refreshing board members:', error);
+    }
+  };
 
   useEffect(() => {
     let navigationPending = false;
@@ -149,11 +180,14 @@ export default function BoardNav({
         <div className="flex items-center gap-2">
 
           {/* Member Avatar Stack */}
-          {members.length > 0 && (
-            <div
-              onClick={onOpenMembers}
-              className="flex items-center -space-x-1.5 p-1 rounded-full cursor-pointer transition-opacity hover:opacity-85 mr-1"
+          {(members.length > 0 || board?.owner) && (
+            <button
+              type="button"
+              onClick={onOpenMembers || (() => setShowSharedMembersPanel(true))}
+              className="flex items-center -space-x-1.5 p-1 rounded-full cursor-pointer transition-opacity hover:opacity-85 mr-1 border-0"
+              style={{ background: 'transparent' }}
               title="Team members (Click to view roles)"
+              aria-label="View team members and roles"
             >
               {displayMembers.map((m, idx) => {
                 const u = m.user || m;
@@ -186,7 +220,7 @@ export default function BoardNav({
                   +{overflowCount}
                 </span>
               )}
-            </div>
+            </button>
           )}
 
           {/* Command Palette Trigger */}
@@ -250,6 +284,15 @@ export default function BoardNav({
           {rightActions}
         </div>
       </div>
+      {!onOpenMembers && (
+        <MembersPanel
+          board={membersBoard || board}
+          isOpen={showSharedMembersPanel}
+          onClose={() => setShowSharedMembersPanel(false)}
+          currentUserIsAdmin={currentUserIsBoardAdmin}
+          onMembersUpdated={refreshMembersBoard}
+        />
+      )}
     </header>
   );
 }

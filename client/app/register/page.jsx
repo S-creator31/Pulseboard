@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import PulseLogo from "@/components/PulseLogo";
+import { jwtDecode } from "jwt-decode";
 
 export default function Register() {
-  const router = useRouter();
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -55,8 +54,11 @@ export default function Register() {
         throw new Error(data.message || "Something went wrong!");
       }
 
-      localStorage.setItem("token", data.token);
-      router.push("/dashboard");
+      const decoded = jwtDecode(data.token);
+      const user = { token: data.token, id: decoded.id, _id: decoded.id };
+      sessionStorage.setItem("user", JSON.stringify(user));
+      sessionStorage.setItem("token", data.token);
+      window.location.assign("/dashboard");
     } catch (err) {
       setError(err.message);
     } finally {

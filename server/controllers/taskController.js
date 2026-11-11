@@ -6,6 +6,7 @@ const TaskDependency = require('../models/TaskDependency');
 const TaskStatusHistory = require('../models/TaskStatusHistory');
 const { computeSchedule, CycleError } = require('../services/schedule');
 const { logActivity } = require('./activityLogController');
+const { queueBoardAlertEvaluation } = require('../services/deliveryAlerts');
 
 const buildSubtaskDependencyEdges = (parentTaskId, subtasks, dependencies) => {
     const parentId = parentTaskId.toString();
@@ -120,6 +121,8 @@ exports.createTask = async (req, res) => {
             toStatus: initialStatus
         });
 
+        queueBoardAlertEvaluation(boardId);
+
         res.status(201).json(populatedTask);
     } catch (err) {
         console.error('Error creating task:', err);
@@ -164,7 +167,7 @@ exports.moveTaskToList = async (req, res) => {
             return res.status(403).json({ message: 'You are not a member of this board' });
         }
 
-        const destinationList = await List.findById(listId);
+        const destinationList = await List.findOne({ _id: listId, board: board._id });
         if (!destinationList) {
             return res.status(404).json({ message: 'Destination list not found' });
         }
@@ -173,14 +176,26 @@ exports.moveTaskToList = async (req, res) => {
         const newStatus = destinationList.statusKey || 'todo';
         const previousListId = task.list.toString();
 
-        task.list = listId;
-        task.status = newStatus;
-        await task.save();
+        // Restrict the update to the list read above so genuinely concurrent
+        // moves cannot overwrite each other. Sequential moves read the latest
+        // list from MongoDB and remain valid even if the client has stale metadata.
+        const movedTask = await Task.findOneAndUpdate(
+            { _id: taskId, board: board._id, list: task.list },
+            { $set: { list: listId, status: newStatus } },
+            { new: true }
+        );
+        if (!movedTask) {
+            const current = await Task.findById(taskId).select('list');
+            return res.status(409).json({
+                message: 'Task was moved concurrently. Refresh the board and retry.',
+                currentListId: current?.list?.toString()
+            });
+        }
 
         // Create TaskStatusHistory if status changed
         if (previousStatus !== newStatus) {
             await TaskStatusHistory.create({
-                task: task._id,
+                task: movedTask._id,
                 board: board._id,
                 fromStatus: previousStatus,
                 toStatus: newStatus,
@@ -196,12 +211,19 @@ exports.moveTaskToList = async (req, res) => {
             action: previousStatus !== newStatus
                 ? `moved "${task.title}" to ${destinationList.title} (${newStatus})`
                 : `moved "${task.title}" to ${destinationList.title}`,
-            taskId: task._id,
+            taskId: movedTask._id,
             fromStatus: previousStatus,
             toStatus: newStatus
         });
 
-        const updatedTask = await task.populate('assignedTo', 'name email');
+        const updatedTask = await movedTask.populate('assignedTo', 'name email');
+        req.app.get('io')?.to(`board:${board._id}`).emit('task:moved', {
+            task: updatedTask,
+            fromListId: previousListId,
+            toListId: listId,
+            movedBy: userId.toString()
+        });
+        queueBoardAlertEvaluation(board._id);
         res.json({ message: 'Task moved successfully', task: updatedTask });
     } catch (err) {
         console.error('Error moving task:', err);
@@ -262,6 +284,12 @@ exports.updateTaskStatus = async (req, res) => {
                 fromStatus: previousStatus,
                 toStatus: status
             });
+
+            req.app.get('io')?.to(`board:${board._id}`).emit('task:status', {
+                task: populatedTask,
+                changedBy: userId.toString()
+            });
+            queueBoardAlertEvaluation(board._id);
         }
 
         res.status(200).json(populatedTask);
@@ -306,6 +334,8 @@ exports.updateTask = async (req, res) => {
             action: `updated task "${task.title}"`,
             taskId: task._id
         });
+
+        queueBoardAlertEvaluation(board._id);
 
         res.json(populatedTask);
     } catch (err) {
@@ -426,6 +456,7 @@ exports.createSubtasksBulk = async (req, res) => {
         await parentTask.deleteOne();
 
         res.status(201).json({ message: 'Task replaced with subtasks successfully', tasks: createdTasks });
+        
     } catch (err) {
         console.error('Error creating bulk subtasks:', err);
         res.status(500).json({ message: err.message });
@@ -465,6 +496,12 @@ exports.deleteTask = async (req, res) => {
             userId: userId,
             action: `deleted a task: ${task.title}`,
             taskId: task._id
+        });
+
+        queueBoardAlertEvaluation(board._id);
+
+        req.app.get('io')?.to(`board:${board._id}`).emit('task:deleted', {
+            taskId: task._id.toString()
         });
 
         res.json({ message: 'Task deleted successfully' });

@@ -22,7 +22,7 @@ export const List = ({
     collect: (monitor) => ({
       isOver: !!monitor.isOver(),
     }),
-  }));
+  }), [list._id, onDropTask]);
 
   const c = colorForString(list.title);
   const tasks = list.tasks || [];

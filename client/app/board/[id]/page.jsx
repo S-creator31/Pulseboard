@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
+import { io } from 'socket.io-client';
 
 import { List } from '@/components/List';
 import BoardNav from '@/components/BoardNav';
@@ -25,6 +26,8 @@ export default function BoardDetailsPage() {
   // Board and Lists state
   const [board, setBoard] = useState(null);
   const [lists, setLists] = useState([]);
+  const listsRef = useRef(lists);
+  listsRef.current = lists;
   const [newListTitle, setNewListTitle] = useState('');
   const [taskTitles, setTaskTitles] = useState({});
   const [assignedTo, setAssignedTo] = useState({});
@@ -33,6 +36,8 @@ export default function BoardDetailsPage() {
   const [activeSprint, setActiveSprint] = useState(null);
   const [sprints, setSprints] = useState([]);
   const [dependencies, setDependencies] = useState([]);
+  const [activeUsers, setActiveUsers] = useState([]);
+  const [syncConnected, setSyncConnected] = useState(false);
 
   // UI state & Modals
   const [selectedTask, setSelectedTask] = useState(null);
@@ -102,6 +107,7 @@ export default function BoardDetailsPage() {
       }
       if (listRes.ok) {
         const lData = await listRes.json();
+        listsRef.current = lData;
         setLists(lData);
       }
       if (sprintRes.ok) {
@@ -126,6 +132,91 @@ export default function BoardDetailsPage() {
     }
     if (token) fetchBoardAndLists();
   }, [authLoading, user, token, fetchBoardAndLists, router]);
+
+  // A single authenticated socket per board handles live card moves and presence.
+  useEffect(() => {
+    if (!token || !boardId) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+    const socket = io(new URL(apiUrl).origin, {
+      auth: { token },
+      transports: ['websocket'],
+      reconnection: true
+    });
+    let connectedOnce = false;
+
+    socket.on('connect', () => {
+      if (connectedOnce) fetchBoardAndLists();
+      connectedOnce = true;
+      setSyncConnected(true);
+      socket.emit('board:join', boardId, (result) => {
+        if (!result?.ok) {
+          setActiveUsers([]);
+          toast.error(result?.message || 'Could not join live board sync');
+          return;
+        }
+        setActiveUsers(result.activeUsers || []);
+      });
+    });
+    socket.on('disconnect', () => {
+      setSyncConnected(false);
+      setActiveUsers([]);
+    });
+    socket.on('connect_error', () => {
+      setSyncConnected(false);
+      setActiveUsers([]);
+    });
+    socket.on('board:presence', setActiveUsers);
+    socket.on('task:moved', ({ task, toListId }) => {
+      setLists((current) => {
+        let movedTask = task;
+        const withoutTask = current.map((list) => ({
+          ...list,
+          tasks: (list.tasks || []).filter((item) => {
+            if (item._id !== task?._id) return true;
+            movedTask = item;
+            return false;
+          })
+        }));
+        if (!movedTask || !withoutTask.some((list) => list._id === toListId)) return current;
+        const nextLists = withoutTask.map((list) => list._id === toListId
+          ? { ...list, tasks: [...(list.tasks || []), { ...movedTask, ...task, list: toListId }] }
+          : list);
+        listsRef.current = nextLists;
+        return nextLists;
+      });
+    });
+    socket.on('task:status', ({ task }) => {
+      setLists((current) => current.map((list) => ({
+        ...list,
+        tasks: (list.tasks || []).map((item) => item._id === task?._id
+          ? { ...item, ...task }
+          : item)
+      })));
+    });
+    socket.on('task:deleted', ({ taskId }) => {
+      setLists((current) => current.map((list) => ({
+        ...list,
+        tasks: (list.tasks || []).filter((item) => item._id !== taskId)
+      })));
+    });
+    socket.on('list:deleted', ({ listId }) => {
+      setLists((current) => current.filter((list) => list._id !== listId));
+    });
+    socket.on('board:member-role-updated', ({ memberId, role }) => {
+      setBoard((current) => current ? {
+        ...current,
+        members: (current.members || []).map((member) => {
+          const user = member.user || member;
+          return String(user._id || user) === String(memberId) ? { ...member, role } : member;
+        })
+      } : current);
+    });
+
+    return () => {
+      socket.removeAllListeners();
+      socket.disconnect();
+    };
+  }, [boardId, token, fetchBoardAndLists]);
 
   // Keyboard shortcut listener (? for shortcuts, ⌘K for command palette)
   useEffect(() => {
@@ -165,8 +256,10 @@ export default function BoardDetailsPage() {
   }, [density]);
 
   const userId = user?.id || user?._id;
-  const currentUserIsAdmin = board?.owner?._id === userId ||
-    board?.members?.some((m) => (m.user?._id || m.user) === userId && m.role === 'admin');
+  const currentUserIsAdmin = String(board?.owner?._id || board?.owner || '') === String(userId || '') ||
+    board?.members?.some((member) =>
+      String(member.user?._id || member.user) === String(userId || '') && member.role === 'admin'
+    );
 
   // Identify blocked tasks
   const blockedTaskIds = useMemo(() => {
@@ -213,14 +306,12 @@ export default function BoardDetailsPage() {
   }, [lists, assigneeFilter, priorityFilter, blockedOnly, searchQuery, blockedTaskIds]);
 
   // Card Move with Optimistic update + Undo toast
-  const handleDropTask = async (taskId, targetListId) => {
+  const handleDropTask = async (taskId, targetListId, expectedSourceListId = null) => {
     let sourceListId = null;
     let movedTask = null;
+    const currentLists = listsRef.current;
 
-    // Snapshot before move for rollback
-    const previousLists = lists;
-
-    const updatedLists = lists.map((list) => {
+    const updatedLists = currentLists.map((list) => {
       const taskIndex = (list.tasks || []).findIndex((task) => task._id === taskId);
       if (taskIndex !== -1) {
         sourceListId = list._id;
@@ -233,15 +324,21 @@ export default function BoardDetailsPage() {
     });
 
     if (!movedTask || !sourceListId || sourceListId === targetListId) return;
+    if (expectedSourceListId && sourceListId !== expectedSourceListId) {
+      toast.error('This card has moved since this undo action was created.');
+      await fetchBoardAndLists();
+      return;
+    }
 
     const finalLists = updatedLists.map((list) => {
       if (list._id === targetListId) {
-        return { ...list, tasks: [...(list.tasks || []), movedTask] };
+        return { ...list, tasks: [...(list.tasks || []), { ...movedTask, list: targetListId }] };
       }
       return list;
     });
 
-    // Optimistic UI update
+    // Update the ref immediately so a following drop/undo uses this move.
+    listsRef.current = finalLists;
     setLists(finalLists);
 
     try {
@@ -254,19 +351,23 @@ export default function BoardDetailsPage() {
         body: JSON.stringify({ listId: targetListId })
       });
 
+      if (res.status === 409) {
+        await fetchBoardAndLists();
+        throw new Error('This card was moved concurrently. The board has been refreshed.');
+      }
       if (!res.ok) throw new Error('Failed to move task');
 
-      const targetList = lists.find(l => l._id === targetListId);
+      const targetList = currentLists.find(l => l._id === targetListId);
       toast.success(`Moved "${movedTask.title}" to ${targetList?.title || 'column'}`, {
         action: {
           label: 'Undo',
-          onClick: () => handleDropTask(taskId, sourceListId)
+          onClick: () => handleDropTask(taskId, sourceListId, targetListId)
         }
       });
     } catch (err) {
       toast.error('Could not move task: ' + err.message);
-      // Rollback
-      setLists(previousLists);
+      // A refresh avoids rolling another user's already-committed move back locally.
+      await fetchBoardAndLists();
     }
   };
 
@@ -443,6 +544,18 @@ export default function BoardDetailsPage() {
       />
 
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-4 space-y-4">
+
+        <div className="flex items-center justify-end gap-2 text-xs" aria-live="polite">
+          <span className={`h-2 w-2 rounded-full ${syncConnected ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+          <span style={{ color: 'var(--color-ink-muted)' }}>
+            {syncConnected ? 'Live sync' : 'Reconnecting'}
+          </span>
+          {activeUsers.length > 0 && (
+            <span className="rounded-full px-2 py-1" style={{ background: 'var(--color-brand-soft)', color: 'var(--color-brand)' }}>
+              {activeUsers.length} active: {activeUsers.map((activeUser) => activeUser.name).join(', ')}
+            </span>
+          )}
+        </div>
 
         {/* 2. BOARD STAT RAIL DIRECTLY UNDER HEADER */}
         {activeSprint && (

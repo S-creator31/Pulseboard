@@ -6,6 +6,6 @@ const requireRole = require('../middlewares/requireRole');
 
 router.post('/', protect, requireRole('admin'), createList);
 router.get('/board/:boardId', protect, getListsByBoard);
-router.delete('/:id', protect, requireRole('admin'), deleteList);
+router.delete('/:listId', protect, requireRole('admin'), deleteList);
 
 module.exports = router;
