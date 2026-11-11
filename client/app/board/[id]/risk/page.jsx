@@ -49,6 +49,15 @@ function pct(p) {
   return typeof p === 'number' ? `${Math.round(p * 100)}%` : '—';
 }
 
+function demoEstimate(duration) {
+  const mostLikely = Math.max(0, Number(duration) || 0);
+  return {
+    optimistic: String(Math.floor(mostLikely * 0.8 * 10) / 10),
+    mostLikely: String(mostLikely),
+    pessimistic: String(Math.ceil(mostLikely * 1.25 * 10) / 10)
+  };
+}
+
 /** Validates the three draft inputs for a task row. */
 function evaluateDraft(values) {
   const raw = [values.optimistic, values.mostLikely, values.pessimistic];
@@ -164,11 +173,20 @@ export default function RiskPage() {
     });
   }, [pert]);
 
-  const valuesFor = (row) => ({
-    optimistic: edits[row.id]?.optimistic ?? (row.hasEstimate ? String(row.optimistic) : ''),
-    mostLikely: edits[row.id]?.mostLikely ?? (row.hasEstimate ? String(row.mostLikely) : ''),
-    pessimistic: edits[row.id]?.pessimistic ?? (row.hasEstimate ? String(row.pessimistic) : '')
-  });
+  const valuesFor = (row) => {
+    const defaults = row.hasEstimate
+      ? {
+          optimistic: String(row.optimistic),
+          mostLikely: String(row.mostLikely),
+          pessimistic: String(row.pessimistic)
+        }
+      : demoEstimate(row.expected);
+    return {
+      optimistic: edits[row.id]?.optimistic ?? defaults.optimistic,
+      mostLikely: edits[row.id]?.mostLikely ?? defaults.mostLikely,
+      pessimistic: edits[row.id]?.pessimistic ?? defaults.pessimistic
+    };
+  };
 
   const setField = (row, key, value) => {
     setEdits((prev) => ({ ...prev, [row.id]: { ...valuesFor(row), ...prev[row.id], [key]: value } }));
@@ -569,7 +587,7 @@ export default function RiskPage() {
                   {rows.map((row) => {
                     const values = valuesFor(row);
                     const draft = evaluateDraft(values);
-                    const dirty = !!edits[row.id];
+                    const dirty = !!edits[row.id] || !row.hasEstimate;
                     const ci = mc.criticalityIndex[row.id] ?? 0;
                     const busy = savingId === row.id;
                     const placeholder = String(row.expected);
@@ -670,6 +688,8 @@ export default function RiskPage() {
               <p className="text-[11px] mt-3 leading-relaxed" style={{ color: 'var(--color-ink-muted)' }}>
                 Criticality is the share of simulation runs in which a task had zero float — a task that is
                 critical in 40% of runs deserves attention even if it is off the single expected critical path.
+                Unsaved tasks are prefilled with sample values (optimistic 20% shorter and pessimistic 25% longer
+                than the current duration); adjust any of the three values and save to apply them to the forecast.
                 Estimates are stored separately from the task&apos;s own duration, so the Timeline &amp; CPM view is
                 unchanged.
               </p>
