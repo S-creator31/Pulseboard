@@ -15,6 +15,11 @@ const boardSchema = new mongoose.Schema({
         user: {type: mongoose.Schema.Types.ObjectId, ref: 'User'},
         role: {type: String, enum: ['admin', 'member', 'viewer'], default: 'member'}
     }],
+    alertSettings: {
+        wipLimit: { type: Number, default: 6, min: 1, max: 100 },
+        webhookUrl: { type: String, default: '' },
+        slackWebhookUrl: { type: String, default: '' }
+    },
     createdAt: { type: Date, default: Date.now}
 });
 

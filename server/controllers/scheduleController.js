@@ -3,6 +3,7 @@ const TaskDependency = require('../models/TaskDependency');
 const Board = require('../models/Board');
 const { computeSchedule, CycleError } = require('../services/schedule');
 const { logActivity } = require('./activityLogController');
+const { queueBoardAlertEvaluation } = require('../services/deliveryAlerts');
 
 exports.getSchedule = async (req, res) => {
     const { id: boardId } = req.params;
@@ -115,6 +116,8 @@ exports.createDependency = async (req, res) => {
             action: 'added a task dependency'
         });
 
+        queueBoardAlertEvaluation(boardId);
+
         res.status(201).json(dependency);
     } catch (err) {
         console.error('Error creating dependency:', err);
@@ -147,6 +150,8 @@ exports.deleteDependency = async (req, res) => {
             userId,
             action: 'removed a task dependency'
         });
+
+        queueBoardAlertEvaluation(board._id);
 
         res.json({ message: 'Dependency removed successfully' });
     } catch (err) {

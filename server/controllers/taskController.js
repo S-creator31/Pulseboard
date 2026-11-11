@@ -4,6 +4,7 @@ const List = require('../models/List');
 const User = require('../models/User');
 const TaskStatusHistory = require('../models/TaskStatusHistory');
 const { logActivity } = require('./activityLogController');
+const { queueBoardAlertEvaluation } = require('../services/deliveryAlerts');
 
 exports.createTask = async (req, res) => {
     const {
@@ -87,6 +88,8 @@ exports.createTask = async (req, res) => {
             taskId: task._id,
             toStatus: initialStatus
         });
+
+        queueBoardAlertEvaluation(boardId);
 
         res.status(201).json(populatedTask);
     } catch (err) {
@@ -188,6 +191,7 @@ exports.moveTaskToList = async (req, res) => {
             toListId: listId,
             movedBy: userId.toString()
         });
+        queueBoardAlertEvaluation(board._id);
         res.json({ message: 'Task moved successfully', task: updatedTask });
     } catch (err) {
         console.error('Error moving task:', err);
@@ -253,6 +257,7 @@ exports.updateTaskStatus = async (req, res) => {
                 task: populatedTask,
                 changedBy: userId.toString()
             });
+            queueBoardAlertEvaluation(board._id);
         }
 
         res.status(200).json(populatedTask);
@@ -297,6 +302,8 @@ exports.updateTask = async (req, res) => {
             action: `updated task "${task.title}"`,
             taskId: task._id
         });
+
+        queueBoardAlertEvaluation(board._id);
 
         res.json(populatedTask);
     } catch (err) {
@@ -350,6 +357,8 @@ exports.createSubtasksBulk = async (req, res) => {
             taskId: parentTask._id
         });
 
+        queueBoardAlertEvaluation(parentTask.board);
+
         res.status(201).json({ message: 'Subtasks added successfully', tasks: createdTasks });
     } catch (err) {
         console.error('Error creating bulk subtasks:', err);
@@ -387,6 +396,8 @@ exports.deleteTask = async (req, res) => {
             action: `deleted a task: ${task.title}`,
             taskId: task._id
         });
+
+        queueBoardAlertEvaluation(board._id);
 
         req.app.get('io')?.to(`board:${board._id}`).emit('task:deleted', {
             taskId: task._id.toString()

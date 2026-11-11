@@ -41,6 +41,12 @@ export default function AnalyticsPage() {
   const [healthData, setHealthData] = useState([]);
   const [capacity, setCapacity] = useState([]);
   const [digest, setDigest] = useState(null);
+  const [alertSettings, setAlertSettings] = useState({ wipLimit: 6, webhookUrl: '', slackWebhookUrl: '', webhookConfigured: false, slackConfigured: false });
+  const [canManageAlerts, setCanManageAlerts] = useState(false);
+  const [savingAlerts, setSavingAlerts] = useState(false);
+  const [downloadingReport, setDownloadingReport] = useState('');
+  const [clearWebhook, setClearWebhook] = useState(false);
+  const [clearSlackWebhook, setClearSlackWebhook] = useState(false);
 
   const [loadingCharts, setLoadingCharts] = useState(true);
   const [digestLoading, setDigestLoading] = useState(false);
@@ -121,6 +127,19 @@ export default function AnalyticsPage() {
         if (boardRes.ok) {
           const bData = await boardRes.json();
           setBoard(bData);
+          const isOwner = String(bData.owner?._id || bData.owner) === String(user?._id || user?.id);
+          const currentMember = (bData.members || []).find(member => String(member.user?._id || member.user) === String(user?._id || user?.id));
+          const isAdmin = isOwner || currentMember?.role === 'admin';
+          setCanManageAlerts(isAdmin);
+          if (isAdmin) {
+            const alertRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/boards/${boardId}/alerts`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            if (alertRes.ok) {
+              const savedSettings = await alertRes.json();
+              setAlertSettings(current => ({ ...current, ...savedSettings }));
+            }
+          }
         }
 
         if (sprintsRes.ok) {
@@ -138,7 +157,59 @@ export default function AnalyticsPage() {
     };
 
     fetchBoardData();
-  }, [boardId, token]);
+  }, [boardId, token, user]);
+
+  const saveAlertSettings = async (event) => {
+    event.preventDefault();
+    setSavingAlerts(true);
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/boards/${boardId}/alerts`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          wipLimit: Number(alertSettings.wipLimit),
+          ...(clearWebhook ? { webhookUrl: '' } : alertSettings.webhookUrl ? { webhookUrl: alertSettings.webhookUrl } : {}),
+          ...(clearSlackWebhook ? { slackWebhookUrl: '' } : alertSettings.slackWebhookUrl ? { slackWebhookUrl: alertSettings.slackWebhookUrl } : {})
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Unable to save alert settings');
+      setAlertSettings(current => ({ ...current, ...data, webhookUrl: '', slackWebhookUrl: '' }));
+      setClearWebhook(false);
+      setClearSlackWebhook(false);
+      toast.success('Delivery alert settings saved');
+    } catch (error) {
+      toast.error(error.message || 'Unable to save alert settings');
+    } finally {
+      setSavingAlerts(false);
+    }
+  };
+
+  const downloadReport = async (format) => {
+    if (!selectedSprintId) return toast.error('Create or select a sprint first');
+    setDownloadingReport(format);
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/boards/${boardId}/reports/${selectedSprintId}/${format}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Report download failed');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `pulseboard-delivery-report.${format}`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success(`${format.toUpperCase()} report downloaded`);
+    } catch (error) {
+      toast.error(error.message || 'Report download failed');
+    } finally {
+      setDownloadingReport('');
+    }
+  };
 
   // Sync selectedSprintId with URL query param
   const handleSelectSprint = (sprintId) => {
@@ -305,6 +376,43 @@ export default function AnalyticsPage() {
             Real-time delivery analytics driven by TaskStatusHistory aggregations
           </div>
         </div>
+
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4" style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }}>
+          <div>
+            <h2 className="font-display text-sm font-semibold" style={{ color: 'var(--color-ink)' }}>Delivery report</h2>
+            <p className="text-xs mt-1" style={{ color: 'var(--color-ink-muted)' }}>Selected sprint burndown, board velocity, and up to 500 audit entries.</p>
+          </div>
+          <div className="flex gap-2">
+            {['pdf', 'csv'].map(format => (
+              <button key={format} type="button" disabled={!selectedSprintId || Boolean(downloadingReport)} onClick={() => downloadReport(format)} className="rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--color-brand)', color: '#fff' }}>
+                {downloadingReport === format ? 'Preparing…' : `Download ${format.toUpperCase()}`}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {canManageAlerts && (
+          <form onSubmit={saveAlertSettings} className="rounded-2xl border p-5 space-y-3" style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }}>
+            <div>
+              <h2 className="font-display text-sm font-semibold" style={{ color: 'var(--color-ink)' }}>Automated delivery alerts</h2>
+              <p className="text-xs mt-1" style={{ color: 'var(--color-ink-muted)' }}>Notifies on WIP cap breaches, sprint scope growth above 15%, and overdue critical path tasks. Alerts fire once per breach and re-arm after it clears.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="text-xs font-medium">WIP cap
+                <input type="number" min="1" max="100" value={alertSettings.wipLimit} onChange={event => setAlertSettings(current => ({ ...current, wipLimit: event.target.value }))} className="mt-1 w-full rounded-lg border px-3 py-2" style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }} />
+              </label>
+              <label className="text-xs font-medium">HTTPS webhook URL
+              <input type="url" placeholder={alertSettings.webhookConfigured ? 'Configured (enter to replace)' : 'https://…'} value={alertSettings.webhookUrl} onChange={event => setAlertSettings(current => ({ ...current, webhookUrl: event.target.value }))} className="mt-1 w-full rounded-lg border px-3 py-2" style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }} />
+              {alertSettings.webhookConfigured && <span className="mt-1 block"><input type="checkbox" checked={clearWebhook} onChange={event => setClearWebhook(event.target.checked)} /> <span className="ml-1">Remove saved webhook</span></span>}
+              </label>
+              <label className="text-xs font-medium">Slack incoming webhook
+              <input type="url" placeholder={alertSettings.slackConfigured ? 'Configured (enter to replace)' : 'https://hooks.slack.com/…'} value={alertSettings.slackWebhookUrl} onChange={event => setAlertSettings(current => ({ ...current, slackWebhookUrl: event.target.value }))} className="mt-1 w-full rounded-lg border px-3 py-2" style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }} />
+              {alertSettings.slackConfigured && <span className="mt-1 block"><input type="checkbox" checked={clearSlackWebhook} onChange={event => setClearSlackWebhook(event.target.checked)} /> <span className="ml-1">Remove saved Slack webhook</span></span>}
+              </label>
+            </div>
+            <button disabled={savingAlerts} className="rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--color-ink)', color: '#fff' }}>{savingAlerts ? 'Saving…' : 'Save alert settings'}</button>
+          </form>
+        )}
 
         {/* 2. AI DELIVERY DIGEST PANEL */}
         <div
