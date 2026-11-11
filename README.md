@@ -129,6 +129,7 @@ Get a free key from [Groq Console](https://console.groq.com/keys). Keep this key
 ```bash
 cd client
 npm install
+cp .env.local.example .env.local  # Configure the backend API URL
 npm run dev        # Runs Next.js frontend on http://localhost:3000
 ```
 

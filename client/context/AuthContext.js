@@ -76,6 +76,7 @@ export const AuthProvider = ({ children }) => {
       router.push('/dashboard');
     } catch (err) {
       console.error('Login error:', err.message);
+      throw err;
     }
   };
 

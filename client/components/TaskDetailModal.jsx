@@ -883,16 +883,24 @@ export default function TaskDetailModal({
                     placeholder="Custom mins"
                     value={logMinutes}
                     onChange={(e) => setLogMinutes(Number(e.target.value))}
-                    className="w-28 px-2.5 py-1.5 text-xs rounded-lg border bg-white outline-none font-data"
-                    style={{ borderColor: "var(--color-line)" }}
+                    className="w-28 px-2.5 py-1.5 text-xs rounded-lg border outline-none font-data"
+                    style={{
+                      background: "var(--color-surface)",
+                      borderColor: "var(--color-line)",
+                      color: "var(--color-ink)"
+                    }}
                   />
                   <input
                     type="text"
                     placeholder="Work note (optional)…"
                     value={logNote}
                     onChange={(e) => setLogNote(e.target.value)}
-                    className="flex-1 px-2.5 py-1.5 text-xs rounded-lg border bg-white outline-none"
-                    style={{ borderColor: "var(--color-line)" }}
+                    className="flex-1 px-2.5 py-1.5 text-xs rounded-lg border outline-none"
+                    style={{
+                      background: "var(--color-surface)",
+                      borderColor: "var(--color-line)",
+                      color: "var(--color-ink)"
+                    }}
                   />
                   <button
                     type="button"

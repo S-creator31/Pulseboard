@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const path = require('path');
 const mongoose = require('mongoose');
 const connectDB = require('./config/db');
 const { startDeliveryAlertScheduler } = require('./services/deliveryAlerts');
@@ -15,7 +16,7 @@ const dependencyRoutes = require('./routes/dependencyRoutes');
 const aiRoutes = require('./routes/aiRoutes');
 const riskRoutes = require('./routes/riskRoutes');
 
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '.env') });
 connectDB();
 if (mongoose.connection.readyState === 1) startDeliveryAlertScheduler();
 else mongoose.connection.once('connected', startDeliveryAlertScheduler);
