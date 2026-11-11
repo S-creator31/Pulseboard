@@ -62,17 +62,6 @@ export default function BoardStatRail({ boardId, activeSprint, sparkline = [36, 
             <span style={{ color: "var(--color-ink-muted)" }}>/ {activeSprint.committedPoints || 36}</span>
           </div>
 
-          <div className="flex items-center gap-1">
-            <span
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold ${
-                activeSprint.blockedCount > 0 ? 'bg-[#ffe6e2] text-[#d93c30]' : 'bg-[#e3faf0] text-[#12b76a]'
-              }`}
-            >
-              <span>{activeSprint.blockedCount > 0 ? '⛔' : '✓'}</span>
-              <span>{activeSprint.blockedCount} blocked</span>
-            </span>
-          </div>
-
           {/* 60px Burndown Sparkline */}
           <div className="flex items-center gap-1.5 pl-2 border-l" style={{ borderColor: "var(--color-line)" }}>
             <span className="text-[10px]" style={{ color: "var(--color-ink-muted)" }}>Burn:</span>

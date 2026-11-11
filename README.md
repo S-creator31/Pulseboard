@@ -116,6 +116,7 @@ cd server
 npm install
 npm run seed:demo  # Seeds deterministic demo board
 npm start          # Runs backend on http://localhost:5000
+
 ```
 
 For AI task breakdowns, add your Groq API key to `server/.env`:

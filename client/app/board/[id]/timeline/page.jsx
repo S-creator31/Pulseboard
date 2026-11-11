@@ -54,6 +54,10 @@ export default function TimelinePage() {
   }, [boardId, token]);
 
   const criticalSet = useMemo(() => new Set(scheduleData.criticalPath || []), [scheduleData]);
+  const criticalPathLabels = useMemo(() => {
+    const titlesById = new Map((scheduleData.tasks || []).map((task) => [String(task.id), task.title]));
+    return (scheduleData.criticalPath || []).map((id) => titlesById.get(String(id)) || id);
+  }, [scheduleData]);
 
   // Scale settings based on zoom
   const dayWidth = zoomLevel === 'day' ? 36 : zoomLevel === 'week' ? 18 : 8;
@@ -251,7 +255,7 @@ export default function TimelinePage() {
         <div className="flex items-center justify-between text-xs px-4 py-2.5 rounded-xl border" style={{ background: "var(--color-surface-2)", borderColor: "var(--color-line)" }}>
           <div className="flex items-center gap-4">
             <span><strong>Project Duration:</strong> <span className="font-data font-bold">{scheduleData.projectDuration} days</span></span>
-            <span><strong>Critical Chain:</strong> <span className="font-data font-medium">{scheduleData.criticalPath.join(' → ') || 'None'}</span></span>
+            <span><strong>Critical Chain:</strong> <span className="font-data font-medium">{criticalPathLabels.join(' → ') || 'None'}</span></span>
           </div>
           <span style={{ color: "var(--color-ink-muted)" }}>
             {viewMode === 'gantt' ? 'Single <svg> vector coordinate timeline' : 'Activity-on-Node PERT boxes with ES/EF and LS/LF float'}

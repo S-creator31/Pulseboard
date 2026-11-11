@@ -20,13 +20,9 @@ async function getBurndown(sprintId) {
     const msPerDay = 24 * 60 * 60 * 1000;
     const totalDays = Math.max(1, Math.round((endDate - startDate) / msPerDay));
 
-    // Find all tasks associated with this sprint
-    const tasks = await Task.find({
-        $or: [
-            { sprint: sprint._id },
-            { board: sprint.board }
-        ]
-    });
+    // Burndown scope belongs to this sprint only; including every board task
+    // inflates remaining and scope-added points with unrelated sprint work.
+    const tasks = await Task.find({ board: sprint.board, sprint: sprint._id });
 
     const sprintTaskIds = tasks.map(t => t._id);
     const taskMap = new Map(tasks.map(t => [t._id.toString(), t]));

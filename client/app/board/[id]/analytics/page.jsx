@@ -410,7 +410,7 @@ export default function AnalyticsPage() {
               {alertSettings.slackConfigured && <span className="mt-1 block"><input type="checkbox" checked={clearSlackWebhook} onChange={event => setClearSlackWebhook(event.target.checked)} /> <span className="ml-1">Remove saved Slack webhook</span></span>}
               </label>
             </div>
-            <button disabled={savingAlerts} className="rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--color-ink)', color: '#fff' }}>{savingAlerts ? 'Saving…' : 'Save alert settings'}</button>
+            <button disabled={savingAlerts} className="rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--color-brand)', color: '#fff' }}>{savingAlerts ? 'Saving…' : 'Save alert settings'}</button>
           </form>
         )}
 

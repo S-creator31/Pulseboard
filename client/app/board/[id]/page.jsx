@@ -565,8 +565,7 @@ export default function BoardDetailsPage() {
               name: activeSprint.name,
               daysRemaining: Math.max(0, Math.ceil((new Date(activeSprint.endsOn) - new Date()) / (1000 * 60 * 60 * 24))),
               committedPoints: activeSprint.committedPoints || 36,
-              completedPoints: lists.find(l => l.statusKey === 'done')?.tasks?.reduce((sum, t) => sum + (t.storyPoints || 0), 0) || 23,
-              blockedCount: blockedTaskIds.size
+              completedPoints: lists.find(l => l.statusKey === 'done')?.tasks?.reduce((sum, t) => sum + (t.storyPoints || 0), 0) || 23
             }}
           />
         )}
