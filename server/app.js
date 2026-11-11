@@ -3,7 +3,9 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const mongoose = require('mongoose');
 const connectDB = require('./config/db');
+const { startDeliveryAlertScheduler } = require('./services/deliveryAlerts');
 
 const activityLogRoutes = require('./routes/activityLogRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
@@ -15,6 +17,8 @@ const riskRoutes = require('./routes/riskRoutes');
 
 dotenv.config();
 connectDB();
+if (mongoose.connection.readyState === 1) startDeliveryAlertScheduler();
+else mongoose.connection.once('connected', startDeliveryAlertScheduler);
 
 const app = express();
 const server = http.createServer(app);
@@ -68,6 +72,8 @@ app.use('/api/ai', aiRoutes);
 app.use('/api', analyticsRoutes);
 app.use('/api', timeEntryRoutes);
 app.use('/api', riskRoutes);
+app.use('/api', require('./routes/alertRoutes'));
+app.use('/api', require('./routes/reportRoutes'));
 
 const PORT = process.env.PORT || 5000;
 
