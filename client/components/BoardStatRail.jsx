@@ -58,7 +58,7 @@ export default function BoardStatRail({ boardId, activeSprint, sparkline = [36, 
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1 font-medium" style={{ color: "var(--color-ink)" }}>
             <span style={{ color: "var(--color-ink-muted)" }}>Points:</span>
-            <span className="font-data font-bold">{activeSprint.completedPoints || 23}</span>
+            <span className="font-data font-bold">{activeSprint.completedPoints ?? 0}</span>
             <span style={{ color: "var(--color-ink-muted)" }}>/ {activeSprint.committedPoints || 36}</span>
           </div>
 
